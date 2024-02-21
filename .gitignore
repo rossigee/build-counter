@@ -1,0 +1,39 @@
+# Compiled binary #
+/build-counter
+
+# Dependency directories (remove these lines if you're using Go modules) #
+/vendor/
+/Godeps/
+
+# Object files #
+*.o
+*.a
+
+# Swap files #
+*.swp
+*.swo
+
+# Temporary files #
+*.tmp
+*.temp
+
+# IDE and editor folders #
+.vscode/
+.idea/
+*.sublime-workspace
+
+# Environment variable files #
+.env
+
+# Log files #
+*.log
+
+# Data files #
+*.dat
+
+# Other #
+.DS_Store
+*.tar.gz
+
+# If using Go modules (which is likely), you might want to ignore go.sum file if your project is a library/application that's not expected to be imported by others #
+# go.sum
