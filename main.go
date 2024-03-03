@@ -15,27 +15,34 @@ type Response struct {
 	NextID int `json:"next_id"`
 }
 
-func getNextID(db *sql.DB, name string) (int, error) {
-	var nextID int
-	query := "SELECT MAX(id) + 1 FROM builds WHERE name = $1"
-	err := db.QueryRow(query, name).Scan(&nextID)
-	if err != nil {
-		return 0, err
-	}
-	return nextID, nil
-}
+func startBuildHandler() http.HandlerFunc {
+	log.Println("Initialising 'startBuildHandler' function...")
 
-func handler(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		name := r.URL.Query().Get("name")
 		if name == "" {
-			http.Error(w, "Missing name parameter", http.StatusBadRequest)
+			http.Error(w, "Missing 'name' parameter", http.StatusBadRequest)
 			return
 		}
 
-		nextID, err := getNextID(db, name)
+		build_id := r.URL.Query().Get("build_id")
+		if build_id == "" {
+			http.Error(w, "Missing 'build_id' parameter", http.StatusBadRequest)
+			return
+		}
+
+		var nextID int
+		query := "INSERT INTO builds (name, build_id, started) VALUES ($1, $2, now()) RETURNING id;"
+		db, err := connectDatabase()
 		if err != nil {
-			log.Printf("Error fetching next ID for name %s: %v", name, err) // Log the error
+			log.Printf("Unable to connect to database: %v", err)
+			http.Error(w, "Error fetching next ID", http.StatusInternalServerError)
+			return
+		}
+		defer db.Close()
+		err = db.QueryRow(query, name, build_id).Scan(&nextID)
+		if err != nil {
+			log.Printf("Error inserting new build record: %v", err)
 			http.Error(w, "Error fetching next ID", http.StatusInternalServerError)
 			return
 		}
@@ -54,25 +61,34 @@ func handler(db *sql.DB) http.HandlerFunc {
 	}
 }
 
-func addBuildHandler(db *sql.DB) http.HandlerFunc {
+func finishBuildHandler() http.HandlerFunc {
+	log.Println("Initialising 'finishBuildHandler' function...")
+
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "Method is not supported.", http.StatusMethodNotAllowed)
+		name := r.URL.Query().Get("name")
+		if name == "" {
+			http.Error(w, "Missing 'name' parameter", http.StatusBadRequest)
 			return
 		}
 
-		var b struct {
-			Name string `json:"name"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		build_id := r.URL.Query().Get("build_id")
+		if build_id == "" {
+			http.Error(w, "Missing 'build_id' parameter", http.StatusBadRequest)
 			return
 		}
 
-		_, err := db.Exec("INSERT INTO builds (name) VALUES ($1)", b.Name)
+		query := "UPDATE builds SET finished = NOW() WHERE name = $1 AND build_id = $2"
+		db, err := connectDatabase()
 		if err != nil {
-			log.Printf("Error inserting new build record: %v", err)
-			http.Error(w, "Error inserting new record", http.StatusInternalServerError)
+			log.Printf("Unable to connect to database: %v", err)
+			http.Error(w, "Error updating finish time", http.StatusInternalServerError)
+			return
+		}
+		defer db.Close()
+		_, err = db.Exec(query, name, build_id)
+		if err != nil {
+			log.Printf("Error updating finish time for name %s: %v", name, err)
+			http.Error(w, "Error updating finish time", http.StatusInternalServerError)
 			return
 		}
 
@@ -80,21 +96,24 @@ func addBuildHandler(db *sql.DB) http.HandlerFunc {
 	}
 }
 
-func main() {
+func connectDatabase() (*sql.DB, error) {
 	// Use os.Getenv to read the environment variable for your connection string
-	connStr := os.Getenv("DB_CONNECTION_STRING")
+	connStr := os.Getenv("DATABASE_URL")
 	if connStr == "" {
-		log.Fatal("DB_CONNECTION_STRING environment variable is not set")
+		log.Fatal("DATABASE_URL environment variable is not set")
 	}
 
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer db.Close()
 
-	http.HandleFunc("/nextid", handler(db))
-	http.HandleFunc("/addbuild", addBuildHandler(db))
+	return db, nil
+}
+
+func main() {
+	http.HandleFunc("/start", startBuildHandler())
+	http.HandleFunc("/finish", finishBuildHandler())
 
 	fmt.Println("Server is running on port 8080...")
 	log.Fatal(http.ListenAndServe(":8080", nil))
