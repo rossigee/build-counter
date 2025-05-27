@@ -1,6 +1,6 @@
 # Define the binary and image names
 BINARY_NAME=build-counter
-IMAGE_NAME=rossigee/build-counter:v0.2.0
+IMAGE_NAME=rossigee/build-counter:v0.4.0
 
 # Default make command builds the binary
 all: build
