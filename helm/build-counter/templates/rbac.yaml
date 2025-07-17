@@ -1,0 +1,29 @@
+{{- if and .Values.rbac.create (eq .Values.storage.mode "lightweight") }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    {{- include "build-counter.labels" . | nindent 4 }}
+  name: {{ include "build-counter.fullname" . }}
+  namespace: {{ include "build-counter.configMapNamespace" . }}
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    {{- include "build-counter.labels" . | nindent 4 }}
+  name: {{ include "build-counter.fullname" . }}
+  namespace: {{ include "build-counter.configMapNamespace" . }}
+subjects:
+- kind: ServiceAccount
+  name: {{ include "build-counter.serviceAccountName" . }}
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: {{ include "build-counter.fullname" . }}
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}

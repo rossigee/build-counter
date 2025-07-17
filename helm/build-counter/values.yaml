@@ -1,0 +1,238 @@
+# Default values for build-counter.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# Global settings
+global:
+  imageRegistry: ""
+  imagePullSecrets: []
+
+# Image settings
+image:
+  registry: ghcr.io
+  repository: rossigee/build-counter
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# Deployment settings
+replicaCount: 1
+
+# Storage mode configuration
+storage:
+  # Mode: "database" or "lightweight"
+  mode: "database"
+  
+  # Database configuration (used when mode=database)
+  database:
+    # External database connection
+    url: ""
+    # Secret containing database URL
+    secretName: ""
+    secretKey: "database-url"
+  
+  # ConfigMap configuration (used when mode=lightweight)
+  configmap:
+    name: "build-counter"
+    namespace: ""
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 8080
+  targetPort: 8080
+  annotations: {}
+
+# Ingress configuration
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # kubernetes.io/tls-acme: "true"
+  hosts:
+    - host: build-counter.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: build-counter-tls
+  #    hosts:
+  #      - build-counter.local
+
+# Resource limits and requests
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+    ephemeral-storage: 1Gi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+    ephemeral-storage: 100Mi
+
+# Horizontal Pod Autoscaler
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+# Health checks
+healthCheck:
+  enabled: true
+  livenessProbe:
+    httpGet:
+      path: /healthz
+      port: http
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readinessProbe:
+    httpGet:
+      path: /readyz
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+# Security settings
+security:
+  runAsNonRoot: true
+  runAsUser: 65534
+  runAsGroup: 65534
+  fsGroup: 65534
+  fsGroupChangePolicy: "Always"
+  seccompProfile:
+    type: RuntimeDefault
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+
+# Pod security context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65534
+  runAsGroup: 65534
+  fsGroup: 65534
+  fsGroupChangePolicy: "Always"
+  seccompProfile:
+    type: RuntimeDefault
+  supplementalGroups: []
+
+# Container security context
+securityContext:
+  allowPrivilegeEscalation: false
+  runAsNonRoot: true
+  runAsUser: 65534
+  runAsGroup: 65534
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: true
+  seccompProfile:
+    type: RuntimeDefault
+
+# Node selection
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity rules
+affinity: {}
+
+# Pod annotations
+podAnnotations: {}
+
+# Pod labels (can include security labels)
+podLabels: {}
+  # pod-security.kubernetes.io/enforce: "restricted"
+  # pod-security.kubernetes.io/warn: "restricted"
+
+# Service account
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+# RBAC configuration
+rbac:
+  # Create RBAC resources
+  create: true
+
+# Environment variables
+env: []
+  # - name: CUSTOM_VAR
+  #   value: "custom-value"
+
+# Environment variables from secrets/configmaps
+envFrom: []
+  # - secretRef:
+  #     name: build-counter-secret
+  # - configMapRef:
+  #     name: build-counter-config
+
+# OpenTelemetry configuration
+opentelemetry:
+  enabled: false
+  endpoint: ""
+  serviceName: "build-counter"
+  serviceVersion: ""
+  insecure: false
+  headers: {}
+
+# Prometheus monitoring
+monitoring:
+  enabled: true
+  # ServiceMonitor for Prometheus Operator
+  serviceMonitor:
+    enabled: false
+    namespace: ""
+    labels: {}
+    interval: 30s
+    scrapeTimeout: 10s
+    path: /metrics
+    honorLabels: false
+
+# Network policies
+networkPolicy:
+  enabled: false
+  ingress: []
+  egress: []
+
+# Pod disruption budget
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+  # maxUnavailable: 1
+
+# Init containers
+initContainers: []
+
+# Additional containers
+sidecarContainers: []
+
+# Extra volumes
+extraVolumes: []
+  # - name: config
+  #   configMap:
+  #     name: my-config
+
+# Extra volume mounts
+extraVolumeMounts: []
+  # - name: config
+  #   mountPath: /etc/config
+  #   readOnly: true
+
+# Lifecycle hooks
+lifecycle: {}
+

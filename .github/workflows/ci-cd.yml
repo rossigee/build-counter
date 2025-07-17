@@ -1,0 +1,232 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ master ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ master ]
+
+env:
+  GHCR_REGISTRY: ghcr.io
+  DOCKERHUB_REGISTRY: docker.io
+  IMAGE_NAME: build-counter
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24'
+
+    - name: Install dependencies
+      run: go mod download
+
+    - name: Run tests
+      run: go test -v -race -coverprofile=coverage.out ./...
+
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.out
+        fail_ci_if_error: false
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24'
+
+    - name: Run Gosec Security Scanner
+      uses: securecodewarrior/github-action-gosec@master
+      with:
+        args: './...'
+
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+  build-and-push:
+    needs: [test, security]
+    runs-on: ubuntu-latest
+    # Only build/push on master branch or tags (not on PRs)
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.GHCR_REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Log in to Docker Hub
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.DOCKERHUB_REGISTRY }}
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: |
+          ${{ env.GHCR_REGISTRY }}/${{ github.repository }}
+          ${{ startsWith(github.ref, 'refs/tags/v') && format('{0}/rossigee/{1}', env.DOCKERHUB_REGISTRY, env.IMAGE_NAME) || '' }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=semver,pattern={{major}}
+          type=sha,prefix={{branch}}-
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./Dockerfile
+        platforms: linux/amd64,linux/arm64
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Run Trivy vulnerability scanner on image
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ env.GHCR_REGISTRY }}/${{ github.repository }}:${{ github.sha }}
+        format: 'sarif'
+        output: 'trivy-image-results.sarif'
+
+    - name: Upload Trivy image scan results
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-image-results.sarif'
+
+  publish-helm-chart:
+    needs: [build-and-push]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+      packages: write
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Configure Git
+      run: |
+        git config user.name "$GITHUB_ACTOR"
+        git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+
+    - name: Install Helm
+      uses: azure/setup-helm@v3
+      with:
+        version: 'latest'
+
+    - name: Update Chart Version
+      run: |
+        VERSION=${GITHUB_REF#refs/tags/v}
+        sed -i "s/^version: .*/version: $VERSION/" helm/build-counter/Chart.yaml
+        sed -i "s/^appVersion: .*/appVersion: \"$VERSION\"/" helm/build-counter/Chart.yaml
+
+    - name: Package Helm Chart
+      run: |
+        helm package helm/build-counter
+
+    - name: Publish to GitHub Pages
+      run: |
+        # Create gh-pages branch if it doesn't exist
+        git checkout gh-pages 2>/dev/null || git checkout -b gh-pages
+        
+        # Create index.yaml if it doesn't exist
+        if [ ! -f index.yaml ]; then
+          helm repo index . --url https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
+        fi
+        
+        # Move the new chart package
+        mv build-counter-*.tgz .
+        
+        # Update the index
+        helm repo index . --url https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }} --merge index.yaml
+        
+        # Commit and push
+        git add .
+        git commit -m "Add Helm chart version ${GITHUB_REF#refs/tags/v}"
+        git push origin gh-pages
+
+    - name: Push Helm Chart to GHCR
+      run: |
+        echo ${{ secrets.GITHUB_TOKEN }} | helm registry login ${{ env.GHCR_REGISTRY }} --username ${{ github.actor }} --password-stdin
+        helm push build-counter-*.tgz oci://${{ env.GHCR_REGISTRY }}/${{ github.repository_owner }}/helm
+
+  create-release:
+    needs: [build-and-push, publish-helm-chart]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Create Release Notes
+      id: release_notes
+      run: |
+        VERSION=${GITHUB_REF#refs/tags/}
+        echo "## 🚀 Release $VERSION" > release-notes.md
+        echo "" >> release-notes.md
+        echo "### 📦 Installation" >> release-notes.md
+        echo "" >> release-notes.md
+        echo "#### Docker" >> release-notes.md
+        echo '```bash' >> release-notes.md
+        echo "docker pull ghcr.io/${{ github.repository }}:$VERSION" >> release-notes.md
+        echo '```' >> release-notes.md
+        echo "" >> release-notes.md
+        echo "#### Helm" >> release-notes.md
+        echo '```bash' >> release-notes.md
+        echo "helm install build-counter oci://ghcr.io/${{ github.repository_owner }}/helm/build-counter --version ${VERSION#v}" >> release-notes.md
+        echo '```' >> release-notes.md
+        echo "" >> release-notes.md
+        echo "### 📝 Changelog" >> release-notes.md
+        echo "" >> release-notes.md
+        git log --pretty=format:"- %s" $(git describe --tags --abbrev=0 HEAD^)..HEAD >> release-notes.md
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        body_path: release-notes.md
+        draft: false
+        prerelease: false

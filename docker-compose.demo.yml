@@ -1,0 +1,93 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: buildcounter
+      POSTGRES_USER: buildcounter
+      POSTGRES_PASSWORD: demo_password_123
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./builds.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U buildcounter -d buildcounter"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Build Counter Service
+  build-counter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: "postgres://buildcounter:demo_password_123@postgres:5432/buildcounter?sslmode=disable"
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/build-counter", "--health-check"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  # Demo Data Generator
+  demo-generator:
+    build:
+      context: ./demo
+      dockerfile: Dockerfile
+    environment:
+      BUILD_COUNTER_URL: "http://build-counter:8080"
+      # Configure demo behavior
+      DEMO_PROJECTS: "25"
+      DEMO_INTERVAL_MIN: "5"
+      DEMO_INTERVAL_MAX: "30"
+      DEMO_BUILD_DURATION_MIN: "30"
+      DEMO_BUILD_DURATION_MAX: "300"
+      DEMO_SUCCESS_RATE: "0.85"
+    depends_on:
+      build-counter:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Prometheus (Optional Monitoring)
+  prometheus:
+    image: prom/prometheus:latest
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./demo/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    depends_on:
+      - build-counter
+
+  # Grafana (Optional Monitoring)
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: demo
+    volumes:
+      - ./demo/grafana:/etc/grafana/provisioning
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+volumes:
+  postgres_data:
+  prometheus_data:
+  grafana_data:

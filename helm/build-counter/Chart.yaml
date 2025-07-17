@@ -1,0 +1,38 @@
+apiVersion: v2
+name: build-counter
+description: A Helm chart for Build Counter - HTTP service for tracking CI/CD build times
+
+# Chart version
+version: 0.9.0
+
+# Application version
+appVersion: "0.9.0"
+
+# Chart type
+type: application
+
+# Keywords for searching
+keywords:
+  - ci-cd
+  - build-tracking
+  - monitoring
+  - observability
+  - kubernetes
+
+# Maintainers
+maintainers:
+  - name: rossigee
+    email: ross@golder.org
+    url: https://github.com/rossigee
+
+# Chart sources
+sources:
+  - https://github.com/rossigee/build-counter
+
+# Chart home page
+home: https://github.com/rossigee/build-counter
+
+# Annotations
+annotations:
+  category: monitoring
+  licenses: MIT
