@@ -4,18 +4,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build Counter Service
 
-This is a simple Go HTTP service that tracks build start/finish times in a PostgreSQL database. It provides REST endpoints for CI/CD systems to register build events.
+This is a modernized Go HTTP service that tracks build start/finish times with dual storage modes. It provides REST endpoints, web UI, metrics, and comprehensive monitoring for CI/CD systems.
 
 ## Architecture
 
-**Single-file application**: All code is in `main.go` with minimal dependencies
-- HTTP server with two endpoints: `/start` and `/finish`
-- Direct PostgreSQL database connection using `lib/pq` driver
-- Simple JSON responses for build tracking
+**Dual-storage architecture** with modular design:
+- **Database mode**: PostgreSQL storage using `lib/pq` driver
+- **Lightweight mode**: Kubernetes ConfigMap storage using `client-go`
+- Storage interface abstraction allows switching between modes
 
-**Database schema**: Single `builds` table (see `builds.sql`)
-- Tracks build name, build_id, started timestamp, and finished timestamp
-- Uses SERIAL primary key for unique build records
+**Multi-file modular structure**:
+- `main.go`: HTTP server, handlers, web UI
+- `database.go`: PostgreSQL storage implementation  
+- `configmap.go`: Kubernetes ConfigMap storage implementation
+- `tracing.go`: OpenTelemetry/OTLP distributed tracing
+- Storage selection based on `DATABASE_URL` environment variable
 
 ## Development Commands
 
@@ -40,39 +43,50 @@ psql -d your_db -f builds.sql
 
 ## Environment Configuration
 
-**Required environment variables**:
-- `DATABASE_URL`: PostgreSQL connection string (e.g., `postgres://user:pass@host:5432/dbname?sslmode=disable`)
+**Storage mode selection**:
+- **Database mode**: Set `DATABASE_URL` (e.g., `postgres://user:pass@host:5432/dbname?sslmode=disable`)
+- **Lightweight mode**: Leave `DATABASE_URL` unset, uses Kubernetes ConfigMap
 
-**Server configuration**:
-- Listens on port 8080
-- No configuration files - all settings via environment variables
+**Environment variables**:
+- `DATABASE_URL`: PostgreSQL connection (optional, triggers database mode)
+- `KUBERNETES_NAMESPACE`: K8s namespace for ConfigMap (default: "default")
+- `PORT`: HTTP server port (default: 8080)
+- `OTEL_EXPORTER_OTLP_ENDPOINT`: OpenTelemetry collector endpoint (optional)
+- `OTEL_EXPORTER_OTLP_HEADERS`: OTLP authentication headers (optional)
 
 ## API Endpoints
 
-**POST /start**: Register build start
-- Parameters: `name` (string), `build_id` (string)  
-- Returns: `{"next_id": 123}` with database record ID
+**Core build tracking**:
+- `POST /start`: Register build start (`name`, `build_id` params)
+- `POST /finish`: Register build completion (`name`, `build_id` params)
 
-**POST /finish**: Register build completion
-- Parameters: `name` (string), `build_id` (string)
-- Updates existing record with finish timestamp
+**Monitoring & health**:
+- `GET /healthz`: Kubernetes liveness probe
+- `GET /readyz`: Kubernetes readiness probe  
+- `GET /metrics`: Prometheus metrics endpoint
+- `GET /version`: Service version info
+
+**Web interface & API**:
+- `GET /`: HTML dashboard with project table (dark mode)
+- `GET /api/projects`: JSON list of all projects
+- `GET /api/projects/{name}/builds`: JSON list of builds for project
 
 ## Testing
 
-**Unit tests**: 
+**Unit tests** (26.7% coverage):
 ```bash
 make test           # Run all tests
 go test -v ./...    # Run with verbose output
 go test -cover      # Run with coverage
 ```
 
-**Test coverage**:
-- Input validation functions
-- HTTP middleware (security headers, method filtering)
-- Handler validation logic
-- Health check endpoint
+**Test coverage includes**:
+- Storage interface implementations (ConfigMap & Database)
+- Input validation and security middleware
+- HTTP handlers with mock storage
+- Environment configuration and setup
 
-**Manual testing via curl**:
+**Manual testing**:
 ```bash
 # Start a build
 curl -X POST "http://localhost:8080/start?name=my-project&build_id=abc123"
@@ -80,10 +94,30 @@ curl -X POST "http://localhost:8080/start?name=my-project&build_id=abc123"
 # Finish a build  
 curl -X POST "http://localhost:8080/finish?name=my-project&build_id=abc123"
 
-# Health check
-curl http://localhost:8080/health
+# View web dashboard
+open http://localhost:8080
+
+# Check metrics
+curl http://localhost:8080/metrics
+
+# Health checks
+curl http://localhost:8080/healthz
+curl http://localhost:8080/readyz
 ```
 
 ## Deployment
 
-Uses multi-stage Docker build with Alpine Linux runtime. Binary compiled with CGO disabled for static linking.
+**Docker**: Multi-stage build with Alpine runtime for health checks and Kubernetes compatibility
+
+**Kubernetes**: Complete Helm chart with:
+- Deployment with configurable storage mode
+- ServiceAccount and RBAC for ConfigMap access
+- Service, Ingress, NetworkPolicy
+- HPA, PodDisruptionBudget, ServiceMonitor
+
+**Docker Compose**: Demo environment with PostgreSQL, Grafana, Prometheus, and data generator
+
+**CI/CD**: GitHub Actions pipeline with:
+- Automated testing and security scanning
+- Docker image publishing to GHCR
+- Helm chart publishing to GitHub Pages

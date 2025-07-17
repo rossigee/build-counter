@@ -1,0 +1,1596 @@
+
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+		<title>build-counter: Go Coverage Report</title>
+		<style>
+			body {
+				background: black;
+				color: rgb(80, 80, 80);
+			}
+			body, pre, #legend span {
+				font-family: Menlo, monospace;
+				font-weight: bold;
+			}
+			#topbar {
+				background: black;
+				position: fixed;
+				top: 0; left: 0; right: 0;
+				height: 42px;
+				border-bottom: 1px solid rgb(80, 80, 80);
+			}
+			#content {
+				margin-top: 50px;
+			}
+			#nav, #legend {
+				float: left;
+				margin-left: 10px;
+			}
+			#legend {
+				margin-top: 12px;
+			}
+			#nav {
+				margin-top: 10px;
+			}
+			#legend span {
+				margin: 0 5px;
+			}
+			.cov0 { color: rgb(192, 0, 0) }
+.cov1 { color: rgb(128, 128, 128) }
+.cov2 { color: rgb(116, 140, 131) }
+.cov3 { color: rgb(104, 152, 134) }
+.cov4 { color: rgb(92, 164, 137) }
+.cov5 { color: rgb(80, 176, 140) }
+.cov6 { color: rgb(68, 188, 143) }
+.cov7 { color: rgb(56, 200, 146) }
+.cov8 { color: rgb(44, 212, 149) }
+.cov9 { color: rgb(32, 224, 152) }
+.cov10 { color: rgb(20, 236, 155) }
+
+		</style>
+	</head>
+	<body>
+		<div id="topbar">
+			<div id="nav">
+				<select id="files">
+				
+				<option value="file0">github.com/rossigee/build-counter/configmap.go (0.0%)</option>
+				
+				<option value="file1">github.com/rossigee/build-counter/database.go (0.0%)</option>
+				
+				<option value="file2">github.com/rossigee/build-counter/main.go (20.8%)</option>
+				
+				<option value="file3">github.com/rossigee/build-counter/tracing.go (9.1%)</option>
+				
+				</select>
+			</div>
+			<div id="legend">
+				<span>not tracked</span>
+			
+				<span class="cov0">not covered</span>
+				<span class="cov8">covered</span>
+			
+			</div>
+		</div>
+		<div id="content">
+		
+		<pre class="file" id="file0" style="display: none">package main
+
+import (
+        "context"
+        "encoding/json"
+        "fmt"
+        "log"
+        "os"
+        "time"
+
+        corev1 "k8s.io/api/core/v1"
+        metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+        "k8s.io/client-go/kubernetes"
+        "k8s.io/client-go/rest"
+        "k8s.io/client-go/tools/clientcmd"
+)
+
+// BuildInfo represents the structure stored in ConfigMap
+type BuildInfo struct {
+        Name      string    `json:"name"`
+        BuildID   string    `json:"build_id"`
+        Started   time.Time `json:"started"`
+        Finished  *time.Time `json:"finished,omitempty"`
+        ID        int       `json:"id"`
+}
+
+// ConfigMapStorage handles build tracking using Kubernetes ConfigMaps
+type ConfigMapStorage struct {
+        client    kubernetes.Interface
+        namespace string
+        configMap string
+}
+
+// NewConfigMapStorage creates a new ConfigMap storage instance
+func NewConfigMapStorage() (*ConfigMapStorage, error) <span class="cov0" title="0">{
+        namespace := os.Getenv("NAMESPACE")
+        if namespace == "" </span><span class="cov0" title="0">{
+                namespace = "default"
+        }</span>
+
+        <span class="cov0" title="0">configMapName := os.Getenv("CONFIGMAP_NAME")
+        if configMapName == "" </span><span class="cov0" title="0">{
+                configMapName = "build-counter"
+        }</span>
+
+        // Try in-cluster config first, then fallback to kubeconfig
+        <span class="cov0" title="0">config, err := rest.InClusterConfig()
+        if err != nil </span><span class="cov0" title="0">{
+                kubeconfig := os.Getenv("KUBECONFIG")
+                if kubeconfig == "" </span><span class="cov0" title="0">{
+                        kubeconfig = os.Getenv("HOME") + "/.kube/config"
+                }</span>
+                <span class="cov0" title="0">config, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
+                if err != nil </span><span class="cov0" title="0">{
+                        return nil, fmt.Errorf("failed to load kubernetes config: %w", err)
+                }</span>
+        }
+
+        <span class="cov0" title="0">clientset, err := kubernetes.NewForConfig(config)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("failed to create kubernetes client: %w", err)
+        }</span>
+
+        <span class="cov0" title="0">return &amp;ConfigMapStorage{
+                client:    clientset,
+                namespace: namespace,
+                configMap: configMapName,
+        }, nil</span>
+}
+
+// StartBuild records the start of a build
+func (cms *ConfigMapStorage) StartBuild(name, buildID string) (int, error) <span class="cov0" title="0">{
+        ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+        defer cancel()
+
+        // Get or create the ConfigMap
+        cm, err := cms.client.CoreV1().ConfigMaps(cms.namespace).Get(ctx, cms.configMap, metav1.GetOptions{})
+        if err != nil </span><span class="cov0" title="0">{
+                // Create ConfigMap if it doesn't exist
+                cm = &amp;corev1.ConfigMap{
+                        ObjectMeta: metav1.ObjectMeta{
+                                Name:      cms.configMap,
+                                Namespace: cms.namespace,
+                        },
+                        Data: make(map[string]string),
+                }
+                cm, err = cms.client.CoreV1().ConfigMaps(cms.namespace).Create(ctx, cm, metav1.CreateOptions{})
+                if err != nil </span><span class="cov0" title="0">{
+                        return 0, fmt.Errorf("failed to create ConfigMap: %w", err)
+                }</span>
+        }
+
+        <span class="cov0" title="0">if cm.Data == nil </span><span class="cov0" title="0">{
+                cm.Data = make(map[string]string)
+        }</span>
+
+        // Generate a simple ID (timestamp-based)
+        <span class="cov0" title="0">buildInfo := BuildInfo{
+                Name:     name,
+                BuildID:  buildID,
+                Started:  time.Now(),
+                ID:       int(time.Now().Unix()),
+        }
+
+        data, err := json.Marshal(buildInfo)
+        if err != nil </span><span class="cov0" title="0">{
+                return 0, fmt.Errorf("failed to marshal build info: %w", err)
+        }</span>
+
+        <span class="cov0" title="0">cm.Data[name] = string(data)
+
+        // Update the ConfigMap
+        _, err = cms.client.CoreV1().ConfigMaps(cms.namespace).Update(ctx, cm, metav1.UpdateOptions{})
+        if err != nil </span><span class="cov0" title="0">{
+                return 0, fmt.Errorf("failed to update ConfigMap: %w", err)
+        }</span>
+
+        <span class="cov0" title="0">return buildInfo.ID, nil</span>
+}
+
+// FinishBuild records the completion of a build
+func (cms *ConfigMapStorage) FinishBuild(name, buildID string) error <span class="cov0" title="0">{
+        ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+        defer cancel()
+
+        // Get the ConfigMap
+        cm, err := cms.client.CoreV1().ConfigMaps(cms.namespace).Get(ctx, cms.configMap, metav1.GetOptions{})
+        if err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("failed to get ConfigMap: %w", err)
+        }</span>
+
+        <span class="cov0" title="0">if cm.Data == nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("no build data found for name: %s", name)
+        }</span>
+
+        // Get existing build info
+        <span class="cov0" title="0">data, exists := cm.Data[name]
+        if !exists </span><span class="cov0" title="0">{
+                return fmt.Errorf("no build found for name: %s", name)
+        }</span>
+
+        <span class="cov0" title="0">var buildInfo BuildInfo
+        if err := json.Unmarshal([]byte(data), &amp;buildInfo); err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("failed to unmarshal build info: %w", err)
+        }</span>
+
+        // Verify build_id matches
+        <span class="cov0" title="0">if buildInfo.BuildID != buildID </span><span class="cov0" title="0">{
+                return fmt.Errorf("build_id mismatch: expected %s, got %s", buildInfo.BuildID, buildID)
+        }</span>
+
+        // Update finish time
+        <span class="cov0" title="0">now := time.Now()
+        buildInfo.Finished = &amp;now
+
+        // Marshal back to JSON
+        updatedData, err := json.Marshal(buildInfo)
+        if err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("failed to marshal updated build info: %w", err)
+        }</span>
+
+        <span class="cov0" title="0">cm.Data[name] = string(updatedData)
+
+        // Update the ConfigMap
+        _, err = cms.client.CoreV1().ConfigMaps(cms.namespace).Update(ctx, cm, metav1.UpdateOptions{})
+        if err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("failed to update ConfigMap: %w", err)
+        }</span>
+
+        <span class="cov0" title="0">return nil</span>
+}
+
+// HealthCheck verifies the ConfigMap storage is accessible
+func (cms *ConfigMapStorage) HealthCheck() error <span class="cov0" title="0">{
+        ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+        defer cancel()
+
+        _, err := cms.client.CoreV1().ConfigMaps(cms.namespace).Get(ctx, cms.configMap, metav1.GetOptions{})
+        if err != nil </span><span class="cov0" title="0">{
+                // Try to create it if it doesn't exist
+                cm := &amp;corev1.ConfigMap{
+                        ObjectMeta: metav1.ObjectMeta{
+                                Name:      cms.configMap,
+                                Namespace: cms.namespace,
+                        },
+                        Data: make(map[string]string),
+                }
+                _, err = cms.client.CoreV1().ConfigMaps(cms.namespace).Create(ctx, cm, metav1.CreateOptions{})
+                if err != nil </span><span class="cov0" title="0">{
+                        return fmt.Errorf("failed to access or create ConfigMap: %w", err)
+                }</span>
+        }
+        <span class="cov0" title="0">return nil</span>
+}
+
+// GetBuildInfo retrieves current build information for a name
+func (cms *ConfigMapStorage) GetBuildInfo(name string) (*BuildInfo, error) <span class="cov0" title="0">{
+        ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+        defer cancel()
+
+        cm, err := cms.client.CoreV1().ConfigMaps(cms.namespace).Get(ctx, cms.configMap, metav1.GetOptions{})
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("failed to get ConfigMap: %w", err)
+        }</span>
+
+        <span class="cov0" title="0">if cm.Data == nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("no build data found")
+        }</span>
+
+        <span class="cov0" title="0">data, exists := cm.Data[name]
+        if !exists </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("no build found for name: %s", name)
+        }</span>
+
+        <span class="cov0" title="0">var buildInfo BuildInfo
+        if err := json.Unmarshal([]byte(data), &amp;buildInfo); err != nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("failed to unmarshal build info: %w", err)
+        }</span>
+
+        <span class="cov0" title="0">return &amp;buildInfo, nil</span>
+}
+
+// ListBuilds returns all current build information
+func (cms *ConfigMapStorage) ListBuilds() (map[string]BuildInfo, error) <span class="cov0" title="0">{
+        ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+        defer cancel()
+
+        cm, err := cms.client.CoreV1().ConfigMaps(cms.namespace).Get(ctx, cms.configMap, metav1.GetOptions{})
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("failed to get ConfigMap: %w", err)
+        }</span>
+
+        <span class="cov0" title="0">builds := make(map[string]BuildInfo)
+        if cm.Data == nil </span><span class="cov0" title="0">{
+                return builds, nil
+        }</span>
+
+        <span class="cov0" title="0">for name, data := range cm.Data </span><span class="cov0" title="0">{
+                var buildInfo BuildInfo
+                if err := json.Unmarshal([]byte(data), &amp;buildInfo); err != nil </span><span class="cov0" title="0">{
+                        log.Printf("Error unmarshaling build info for %s: %v", name, err)
+                        continue</span>
+                }
+                <span class="cov0" title="0">builds[name] = buildInfo</span>
+        }
+
+        <span class="cov0" title="0">return builds, nil</span>
+}
+
+// ListProjects returns a summary of all projects with their latest builds (ConfigMap mode)
+func (cms *ConfigMapStorage) ListProjects() ([]ProjectSummary, error) <span class="cov0" title="0">{
+        builds, err := cms.ListBuilds()
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("failed to list builds: %w", err)
+        }</span>
+
+        <span class="cov0" title="0">var projects []ProjectSummary
+        for name, buildInfo := range builds </span><span class="cov0" title="0">{
+                build := Build{
+                        ID:      buildInfo.ID,
+                        Name:    buildInfo.Name,
+                        BuildID: buildInfo.BuildID,
+                        Started: buildInfo.Started,
+                }
+                
+                if buildInfo.Finished != nil </span><span class="cov0" title="0">{
+                        build.Finished = buildInfo.Finished
+                        duration := buildInfo.Finished.Sub(buildInfo.Started).Seconds()
+                        durationInt := int64(duration)
+                        build.Duration = &amp;durationInt
+                }</span>
+
+                <span class="cov0" title="0">projects = append(projects, ProjectSummary{
+                        Name:        name,
+                        LatestBuild: build,
+                        BuildCount:  1, // ConfigMap only stores latest build
+                })</span>
+        }
+
+        <span class="cov0" title="0">return projects, nil</span>
+}
+
+// GetProjectBuilds returns all builds for a specific project (ConfigMap mode - only latest)
+func (cms *ConfigMapStorage) GetProjectBuilds(name string) ([]Build, error) <span class="cov0" title="0">{
+        buildInfo, err := cms.GetBuildInfo(name)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("failed to get build info for %s: %w", name, err)
+        }</span>
+
+        <span class="cov0" title="0">build := Build{
+                ID:      buildInfo.ID,
+                Name:    buildInfo.Name,
+                BuildID: buildInfo.BuildID,
+                Started: buildInfo.Started,
+        }
+        
+        if buildInfo.Finished != nil </span><span class="cov0" title="0">{
+                build.Finished = buildInfo.Finished
+                duration := buildInfo.Finished.Sub(buildInfo.Started).Seconds()
+                durationInt := int64(duration)
+                build.Duration = &amp;durationInt
+        }</span>
+
+        <span class="cov0" title="0">return []Build{build}, nil</span>
+}</pre>
+		
+		<pre class="file" id="file1" style="display: none">package main
+
+import (
+        "context"
+        "database/sql"
+        "fmt"
+        "os"
+        "time"
+
+        _ "github.com/lib/pq"
+)
+
+// DatabaseStorage handles build tracking using PostgreSQL
+type DatabaseStorage struct {
+        connStr string
+}
+
+// NewDatabaseStorage creates a new database storage instance
+func NewDatabaseStorage() (*DatabaseStorage, error) <span class="cov0" title="0">{
+        connStr := os.Getenv("DATABASE_URL")
+        if connStr == "" </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("DATABASE_URL environment variable is not set")
+        }</span>
+
+        <span class="cov0" title="0">return &amp;DatabaseStorage{
+                connStr: connStr,
+        }, nil</span>
+}
+
+// connectDatabase creates a database connection
+func (ds *DatabaseStorage) connectDatabase() (*sql.DB, error) <span class="cov0" title="0">{
+        db, err := sql.Open("postgres", ds.connStr)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, err
+        }</span>
+
+        // Configure connection pool
+        <span class="cov0" title="0">db.SetMaxOpenConns(25)
+        db.SetMaxIdleConns(25)
+        db.SetConnMaxLifetime(5 * time.Minute)
+
+        // Test connection
+        ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+        defer cancel()
+        if err = db.PingContext(ctx); err != nil </span><span class="cov0" title="0">{
+                db.Close()
+                return nil, err
+        }</span>
+
+        <span class="cov0" title="0">return db, nil</span>
+}
+
+// StartBuild records the start of a build
+func (ds *DatabaseStorage) StartBuild(name, buildID string) (int, error) <span class="cov0" title="0">{
+        var nextID int
+        query := "INSERT INTO builds (name, build_id, started) VALUES ($1, $2, now()) RETURNING id;"
+        
+        db, err := ds.connectDatabase()
+        if err != nil </span><span class="cov0" title="0">{
+                return 0, fmt.Errorf("unable to connect to database: %w", err)
+        }</span>
+        <span class="cov0" title="0">defer db.Close()
+
+        ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+        defer cancel()
+
+        err = db.QueryRowContext(ctx, query, name, buildID).Scan(&amp;nextID)
+        if err != nil </span><span class="cov0" title="0">{
+                return 0, fmt.Errorf("error inserting new build record: %w", err)
+        }</span>
+
+        <span class="cov0" title="0">return nextID, nil</span>
+}
+
+// FinishBuild records the completion of a build
+func (ds *DatabaseStorage) FinishBuild(name, buildID string) error <span class="cov0" title="0">{
+        query := "UPDATE builds SET finished = NOW() WHERE name = $1 AND build_id = $2"
+        
+        db, err := ds.connectDatabase()
+        if err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("unable to connect to database: %w", err)
+        }</span>
+        <span class="cov0" title="0">defer db.Close()
+
+        ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+        defer cancel()
+
+        _, err = db.ExecContext(ctx, query, name, buildID)
+        if err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("error updating finish time for name %s: %w", name, err)
+        }</span>
+
+        <span class="cov0" title="0">return nil</span>
+}
+
+// HealthCheck verifies the database connection is healthy
+func (ds *DatabaseStorage) HealthCheck() error <span class="cov0" title="0">{
+        db, err := ds.connectDatabase()
+        if err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("database connection failed: %w", err)
+        }</span>
+        <span class="cov0" title="0">defer db.Close()
+
+        ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+        defer cancel()
+        
+        if err := db.PingContext(ctx); err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("database ping failed: %w", err)
+        }</span>
+
+        <span class="cov0" title="0">return nil</span>
+}
+
+// ListProjects returns a summary of all projects with their latest builds
+func (ds *DatabaseStorage) ListProjects() ([]ProjectSummary, error) <span class="cov0" title="0">{
+        db, err := ds.connectDatabase()
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("unable to connect to database: %w", err)
+        }</span>
+        <span class="cov0" title="0">defer db.Close()
+
+        ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+        defer cancel()
+
+        query := `
+                SELECT DISTINCT ON (name) 
+                        name, 
+                        id, 
+                        build_id, 
+                        started, 
+                        finished,
+                        (SELECT COUNT(*) FROM builds b2 WHERE b2.name = builds.name) as build_count
+                FROM builds 
+                ORDER BY name, started DESC
+        `
+
+        rows, err := db.QueryContext(ctx, query)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("error querying projects: %w", err)
+        }</span>
+        <span class="cov0" title="0">defer rows.Close()
+
+        var projects []ProjectSummary
+        for rows.Next() </span><span class="cov0" title="0">{
+                var p ProjectSummary
+                var build Build
+                var finished sql.NullTime
+                
+                err := rows.Scan(&amp;build.Name, &amp;build.ID, &amp;build.BuildID, &amp;build.Started, &amp;finished, &amp;p.BuildCount)
+                if err != nil </span><span class="cov0" title="0">{
+                        return nil, fmt.Errorf("error scanning project row: %w", err)
+                }</span>
+                
+                <span class="cov0" title="0">if finished.Valid </span><span class="cov0" title="0">{
+                        build.Finished = &amp;finished.Time
+                        duration := finished.Time.Sub(build.Started).Seconds()
+                        durationInt := int64(duration)
+                        build.Duration = &amp;durationInt
+                }</span>
+                
+                <span class="cov0" title="0">p.Name = build.Name
+                p.LatestBuild = build
+                projects = append(projects, p)</span>
+        }
+
+        <span class="cov0" title="0">return projects, nil</span>
+}
+
+// GetProjectBuilds returns all builds for a specific project
+func (ds *DatabaseStorage) GetProjectBuilds(name string) ([]Build, error) <span class="cov0" title="0">{
+        db, err := ds.connectDatabase()
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("unable to connect to database: %w", err)
+        }</span>
+        <span class="cov0" title="0">defer db.Close()
+
+        ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+        defer cancel()
+
+        query := `
+                SELECT id, name, build_id, started, finished
+                FROM builds 
+                WHERE name = $1
+                ORDER BY started DESC
+        `
+
+        rows, err := db.QueryContext(ctx, query, name)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("error querying builds for project %s: %w", name, err)
+        }</span>
+        <span class="cov0" title="0">defer rows.Close()
+
+        var builds []Build
+        for rows.Next() </span><span class="cov0" title="0">{
+                var build Build
+                var finished sql.NullTime
+                
+                err := rows.Scan(&amp;build.ID, &amp;build.Name, &amp;build.BuildID, &amp;build.Started, &amp;finished)
+                if err != nil </span><span class="cov0" title="0">{
+                        return nil, fmt.Errorf("error scanning build row: %w", err)
+                }</span>
+                
+                <span class="cov0" title="0">if finished.Valid </span><span class="cov0" title="0">{
+                        build.Finished = &amp;finished.Time
+                        duration := finished.Time.Sub(build.Started).Seconds()
+                        durationInt := int64(duration)
+                        build.Duration = &amp;durationInt
+                }</span>
+                
+                <span class="cov0" title="0">builds = append(builds, build)</span>
+        }
+
+        <span class="cov0" title="0">return builds, nil</span>
+}</pre>
+		
+		<pre class="file" id="file2" style="display: none">package main
+
+import (
+        "context"
+        "database/sql"
+        "encoding/json"
+        "fmt"
+        "log"
+        "net/http"
+        "os"
+        "regexp"
+        "runtime"
+        "strings"
+        "sync/atomic"
+        "time"
+
+        _ "github.com/lib/pq"
+        "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+        "go.opentelemetry.io/otel/attribute"
+)
+
+// Version is set at build time
+var version = "0.9.0"
+
+// Build represents a build record
+type Build struct {
+        ID       int        `json:"id"`
+        Name     string     `json:"name"`
+        BuildID  string     `json:"build_id"`
+        Started  time.Time  `json:"started"`
+        Finished *time.Time `json:"finished,omitempty"`
+        Duration *int64     `json:"duration_seconds,omitempty"`
+}
+
+// ProjectSummary represents the latest build for a project
+type ProjectSummary struct {
+        Name        string     `json:"name"`
+        LatestBuild Build      `json:"latest_build"`
+        BuildCount  int        `json:"build_count,omitempty"`
+}
+
+// Global storage interface
+type Storage interface {
+        StartBuild(name, buildID string) (int, error)
+        FinishBuild(name, buildID string) error
+        HealthCheck() error
+        ListProjects() ([]ProjectSummary, error)
+        GetProjectBuilds(name string) ([]Build, error)
+}
+
+// Global storage instance
+var storage Storage
+
+// Metrics tracking
+var (
+        startTime        = time.Now()
+        requestsTotal    int64
+        buildsStarted    int64
+        buildsFinished   int64
+        healthChecks     int64
+        errorCount       int64
+)
+
+type Response struct {
+        NextID int `json:"next_id"`
+}
+
+// Input validation patterns
+var (
+        namePattern    = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+        buildIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`)
+)
+
+// validateInput validates and sanitizes input parameters
+func validateInput(name, buildID string) error <span class="cov8" title="1">{
+        if len(name) == 0 || len(name) &gt; 255 </span><span class="cov8" title="1">{
+                return fmt.Errorf("name must be between 1 and 255 characters")
+        }</span>
+        <span class="cov8" title="1">if len(buildID) == 0 || len(buildID) &gt; 255 </span><span class="cov8" title="1">{
+                return fmt.Errorf("build_id must be between 1 and 255 characters")
+        }</span>
+        <span class="cov8" title="1">if !namePattern.MatchString(name) </span><span class="cov8" title="1">{
+                return fmt.Errorf("name contains invalid characters")
+        }</span>
+        <span class="cov8" title="1">if !buildIDPattern.MatchString(buildID) </span><span class="cov8" title="1">{
+                return fmt.Errorf("build_id contains invalid characters")
+        }</span>
+        <span class="cov8" title="1">return nil</span>
+}
+
+func startBuildHandler() http.HandlerFunc <span class="cov8" title="1">{
+        log.Println("Initialising 'startBuildHandler' function...")
+
+        return func(w http.ResponseWriter, r *http.Request) </span><span class="cov8" title="1">{
+                atomic.AddInt64(&amp;requestsTotal, 1)
+                _, span := startSpan(r.Context(), "start-build")
+                defer span.End()
+
+                name := strings.TrimSpace(r.URL.Query().Get("name"))
+                build_id := strings.TrimSpace(r.URL.Query().Get("build_id"))
+
+                span.SetAttributes(
+                        attribute.String("build.name", name),
+                        attribute.String("build.id", build_id),
+                )
+
+                if err := validateInput(name, build_id); err != nil </span><span class="cov8" title="1">{
+                        log.Printf("Invalid input: %v", err)
+                        recordError(span, err)
+                        atomic.AddInt64(&amp;errorCount, 1)
+                        http.Error(w, "Invalid input parameters", http.StatusBadRequest)
+                        return
+                }</span>
+
+                <span class="cov0" title="0">nextID, err := storage.StartBuild(name, build_id)
+                if err != nil </span><span class="cov0" title="0">{
+                        log.Printf("Error starting build: %v", err)
+                        recordError(span, err)
+                        atomic.AddInt64(&amp;errorCount, 1)
+                        http.Error(w, "Internal server error", http.StatusInternalServerError)
+                        return
+                }</span>
+
+                <span class="cov0" title="0">atomic.AddInt64(&amp;buildsStarted, 1)
+                span.SetAttributes(attribute.Int("build.next_id", nextID))
+
+                resp := Response{NextID: nextID}
+                jsonResp, err := json.Marshal(resp)
+                if err != nil </span><span class="cov0" title="0">{
+                        log.Printf("Error marshaling JSON response: %v", err)
+                        recordError(span, err)
+                        atomic.AddInt64(&amp;errorCount, 1)
+                        http.Error(w, "Internal server error", http.StatusInternalServerError)
+                        return
+                }</span>
+
+                <span class="cov0" title="0">w.Header().Set("Content-Type", "application/json")
+                w.WriteHeader(http.StatusOK)
+                w.Write(jsonResp)</span>
+        }
+}
+
+func finishBuildHandler() http.HandlerFunc <span class="cov8" title="1">{
+        log.Println("Initialising 'finishBuildHandler' function...")
+
+        return func(w http.ResponseWriter, r *http.Request) </span><span class="cov8" title="1">{
+                atomic.AddInt64(&amp;requestsTotal, 1)
+                _, span := startSpan(r.Context(), "finish-build")
+                defer span.End()
+
+                name := strings.TrimSpace(r.URL.Query().Get("name"))
+                build_id := strings.TrimSpace(r.URL.Query().Get("build_id"))
+
+                span.SetAttributes(
+                        attribute.String("build.name", name),
+                        attribute.String("build.id", build_id),
+                )
+
+                if err := validateInput(name, build_id); err != nil </span><span class="cov8" title="1">{
+                        log.Printf("Invalid input: %v", err)
+                        recordError(span, err)
+                        atomic.AddInt64(&amp;errorCount, 1)
+                        http.Error(w, "Invalid input parameters", http.StatusBadRequest)
+                        return
+                }</span>
+
+                <span class="cov0" title="0">err := storage.FinishBuild(name, build_id)
+                if err != nil </span><span class="cov0" title="0">{
+                        log.Printf("Error finishing build: %v", err)
+                        recordError(span, err)
+                        atomic.AddInt64(&amp;errorCount, 1)
+                        http.Error(w, "Internal server error", http.StatusInternalServerError)
+                        return
+                }</span>
+
+                <span class="cov0" title="0">atomic.AddInt64(&amp;buildsFinished, 1)
+                w.WriteHeader(http.StatusCreated)</span>
+        }
+}
+
+func connectDatabase() (*sql.DB, error) <span class="cov0" title="0">{
+        connStr := os.Getenv("DATABASE_URL")
+        if connStr == "" </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("DATABASE_URL environment variable is not set")
+        }</span>
+
+        <span class="cov0" title="0">db, err := sql.Open("postgres", connStr)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, err
+        }</span>
+
+        // Configure connection pool
+        <span class="cov0" title="0">db.SetMaxOpenConns(25)
+        db.SetMaxIdleConns(25)
+        db.SetConnMaxLifetime(5 * time.Minute)
+
+        // Test connection
+        ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+        defer cancel()
+        if err = db.PingContext(ctx); err != nil </span><span class="cov0" title="0">{
+                db.Close()
+                return nil, err
+        }</span>
+
+        <span class="cov0" title="0">return db, nil</span>
+}
+
+// securityHeadersMiddleware adds security headers to responses
+func securityHeadersMiddleware(next http.Handler) http.Handler <span class="cov8" title="1">{
+        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) </span><span class="cov8" title="1">{
+                w.Header().Set("X-Content-Type-Options", "nosniff")
+                w.Header().Set("X-Frame-Options", "DENY")
+                w.Header().Set("X-XSS-Protection", "1; mode=block")
+                w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+                next.ServeHTTP(w, r)
+        }</span>)
+}
+
+// methodFilter ensures only POST requests are allowed
+func methodFilter(next http.HandlerFunc) http.HandlerFunc <span class="cov8" title="1">{
+        return func(w http.ResponseWriter, r *http.Request) </span><span class="cov8" title="1">{
+                if r.Method != http.MethodPost </span><span class="cov8" title="1">{
+                        http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+                        return
+                }</span>
+                <span class="cov8" title="1">next(w, r)</span>
+        }
+}
+
+// healthHandler provides a health check endpoint
+func healthHandler() http.HandlerFunc <span class="cov8" title="1">{
+        return func(w http.ResponseWriter, r *http.Request) </span><span class="cov8" title="1">{
+                atomic.AddInt64(&amp;requestsTotal, 1)
+                atomic.AddInt64(&amp;healthChecks, 1)
+                _, span := startSpan(r.Context(), "health-check")
+                defer span.End()
+
+                if err := storage.HealthCheck(); err != nil </span><span class="cov8" title="1">{
+                        recordError(span, err)
+                        atomic.AddInt64(&amp;errorCount, 1)
+                        w.WriteHeader(http.StatusServiceUnavailable)
+                        w.Write([]byte("Storage health check failed"))
+                        return
+                }</span>
+
+                <span class="cov0" title="0">w.WriteHeader(http.StatusOK)
+                w.Write([]byte("OK"))</span>
+        }
+}
+
+// livenessHandler provides a liveness probe endpoint (/healthz)
+func livenessHandler() http.HandlerFunc <span class="cov0" title="0">{
+        return func(w http.ResponseWriter, r *http.Request) </span><span class="cov0" title="0">{
+                // Simple liveness check - just return OK if the service is running
+                w.WriteHeader(http.StatusOK)
+                w.Write([]byte("OK"))
+        }</span>
+}
+
+// readinessHandler provides a readiness probe endpoint (/readyz)
+func readinessHandler() http.HandlerFunc <span class="cov0" title="0">{
+        return func(w http.ResponseWriter, r *http.Request) </span><span class="cov0" title="0">{
+                atomic.AddInt64(&amp;requestsTotal, 1)
+                atomic.AddInt64(&amp;healthChecks, 1)
+                _, span := startSpan(r.Context(), "readiness-check")
+                defer span.End()
+
+                // Readiness check - verify that storage is accessible
+                if err := storage.HealthCheck(); err != nil </span><span class="cov0" title="0">{
+                        recordError(span, err)
+                        atomic.AddInt64(&amp;errorCount, 1)
+                        w.WriteHeader(http.StatusServiceUnavailable)
+                        w.Write([]byte("Storage not ready"))
+                        return
+                }</span>
+
+                <span class="cov0" title="0">w.WriteHeader(http.StatusOK)
+                w.Write([]byte("OK"))</span>
+        }
+}
+
+// metricsHandler provides a Prometheus-style metrics endpoint
+func metricsHandler() http.HandlerFunc <span class="cov0" title="0">{
+        return func(w http.ResponseWriter, r *http.Request) </span><span class="cov0" title="0">{
+                atomic.AddInt64(&amp;requestsTotal, 1)
+                
+                uptime := time.Since(startTime).Seconds()
+                
+                var m runtime.MemStats
+                runtime.ReadMemStats(&amp;m)
+                
+                // Get current storage type
+                storageType := "database"
+                if lightweightMode </span><span class="cov0" title="0">{
+                        storageType = "configmap"
+                }</span>
+                
+                <span class="cov0" title="0">metrics := fmt.Sprintf(`# HELP build_counter_info Information about the build counter service
+# TYPE build_counter_info gauge
+build_counter_info{version="%s",storage_type="%s"} 1
+
+# HELP build_counter_uptime_seconds Total uptime of the service in seconds
+# TYPE build_counter_uptime_seconds gauge
+build_counter_uptime_seconds %.2f
+
+# HELP build_counter_requests_total Total number of HTTP requests
+# TYPE build_counter_requests_total counter
+build_counter_requests_total %d
+
+# HELP build_counter_builds_started_total Total number of builds started
+# TYPE build_counter_builds_started_total counter
+build_counter_builds_started_total %d
+
+# HELP build_counter_builds_finished_total Total number of builds finished
+# TYPE build_counter_builds_finished_total counter
+build_counter_builds_finished_total %d
+
+# HELP build_counter_health_checks_total Total number of health checks
+# TYPE build_counter_health_checks_total counter
+build_counter_health_checks_total %d
+
+# HELP build_counter_errors_total Total number of errors
+# TYPE build_counter_errors_total counter
+build_counter_errors_total %d
+
+# HELP build_counter_memory_usage_bytes Memory usage in bytes
+# TYPE build_counter_memory_usage_bytes gauge
+build_counter_memory_usage_bytes %d
+
+# HELP build_counter_goroutines Number of goroutines
+# TYPE build_counter_goroutines gauge
+build_counter_goroutines %d
+
+# HELP process_start_time_seconds Start time of the process since unix epoch in seconds
+# TYPE process_start_time_seconds gauge
+process_start_time_seconds %.2f
+`,
+                        version,
+                        storageType,
+                        uptime,
+                        atomic.LoadInt64(&amp;requestsTotal),
+                        atomic.LoadInt64(&amp;buildsStarted),
+                        atomic.LoadInt64(&amp;buildsFinished),
+                        atomic.LoadInt64(&amp;healthChecks),
+                        atomic.LoadInt64(&amp;errorCount),
+                        m.Alloc,
+                        runtime.NumGoroutine(),
+                        float64(startTime.Unix()),
+                )
+                
+                w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+                w.WriteHeader(http.StatusOK)
+                w.Write([]byte(metrics))</span>
+        }
+}
+
+// apiProjectsHandler provides REST API for listing projects
+func apiProjectsHandler() http.HandlerFunc <span class="cov0" title="0">{
+        return func(w http.ResponseWriter, r *http.Request) </span><span class="cov0" title="0">{
+                atomic.AddInt64(&amp;requestsTotal, 1)
+                _, span := startSpan(r.Context(), "api-projects")
+                defer span.End()
+
+                projects, err := storage.ListProjects()
+                if err != nil </span><span class="cov0" title="0">{
+                        log.Printf("Error listing projects: %v", err)
+                        recordError(span, err)
+                        atomic.AddInt64(&amp;errorCount, 1)
+                        http.Error(w, "Internal server error", http.StatusInternalServerError)
+                        return
+                }</span>
+
+                <span class="cov0" title="0">w.Header().Set("Content-Type", "application/json")
+                w.WriteHeader(http.StatusOK)
+                json.NewEncoder(w).Encode(projects)</span>
+        }
+}
+
+// apiProjectBuildsHandler provides REST API for listing builds for a project
+func apiProjectBuildsHandler() http.HandlerFunc <span class="cov0" title="0">{
+        return func(w http.ResponseWriter, r *http.Request) </span><span class="cov0" title="0">{
+                atomic.AddInt64(&amp;requestsTotal, 1)
+                _, span := startSpan(r.Context(), "api-project-builds")
+                defer span.End()
+
+                name := strings.TrimSpace(r.URL.Query().Get("name"))
+                if name == "" </span><span class="cov0" title="0">{
+                        http.Error(w, "Missing 'name' parameter", http.StatusBadRequest)
+                        return
+                }</span>
+
+                <span class="cov0" title="0">span.SetAttributes(attribute.String("project.name", name))
+
+                builds, err := storage.GetProjectBuilds(name)
+                if err != nil </span><span class="cov0" title="0">{
+                        log.Printf("Error getting builds for project %s: %v", name, err)
+                        recordError(span, err)
+                        atomic.AddInt64(&amp;errorCount, 1)
+                        http.Error(w, "Internal server error", http.StatusInternalServerError)
+                        return
+                }</span>
+
+                <span class="cov0" title="0">w.Header().Set("Content-Type", "application/json")
+                w.WriteHeader(http.StatusOK)
+                json.NewEncoder(w).Encode(builds)</span>
+        }
+}
+
+// homepageHandler provides the main HTML interface
+func homepageHandler() http.HandlerFunc <span class="cov0" title="0">{
+        return func(w http.ResponseWriter, r *http.Request) </span><span class="cov0" title="0">{
+                atomic.AddInt64(&amp;requestsTotal, 1)
+                _, span := startSpan(r.Context(), "homepage")
+                defer span.End()
+
+                projects, err := storage.ListProjects()
+                if err != nil </span><span class="cov0" title="0">{
+                        log.Printf("Error listing projects: %v", err)
+                        recordError(span, err)
+                        atomic.AddInt64(&amp;errorCount, 1)
+                        http.Error(w, "Internal server error", http.StatusInternalServerError)
+                        return
+                }</span>
+
+                <span class="cov0" title="0">storageType := "Database (PostgreSQL)"
+                if lightweightMode </span><span class="cov0" title="0">{
+                        storageType = "Lightweight (Kubernetes ConfigMap)"
+                }</span>
+
+                <span class="cov0" title="0">html := generateHomepageHTML(projects, storageType)
+                w.Header().Set("Content-Type", "text/html; charset=utf-8")
+                w.WriteHeader(http.StatusOK)
+                w.Write([]byte(html))</span>
+        }
+}
+
+// projectBuildsHandler provides the project builds HTML interface
+func projectBuildsHandler() http.HandlerFunc <span class="cov0" title="0">{
+        return func(w http.ResponseWriter, r *http.Request) </span><span class="cov0" title="0">{
+                atomic.AddInt64(&amp;requestsTotal, 1)
+                _, span := startSpan(r.Context(), "project-builds")
+                defer span.End()
+
+                name := strings.TrimSpace(r.URL.Query().Get("name"))
+                if name == "" </span><span class="cov0" title="0">{
+                        http.Error(w, "Missing 'name' parameter", http.StatusBadRequest)
+                        return
+                }</span>
+
+                <span class="cov0" title="0">span.SetAttributes(attribute.String("project.name", name))
+
+                builds, err := storage.GetProjectBuilds(name)
+                if err != nil </span><span class="cov0" title="0">{
+                        log.Printf("Error getting builds for project %s: %v", name, err)
+                        recordError(span, err)
+                        atomic.AddInt64(&amp;errorCount, 1)
+                        http.Error(w, "Internal server error", http.StatusInternalServerError)
+                        return
+                }</span>
+
+                <span class="cov0" title="0">html := generateProjectBuildsHTML(name, builds)
+                w.Header().Set("Content-Type", "text/html; charset=utf-8")
+                w.WriteHeader(http.StatusOK)
+                w.Write([]byte(html))</span>
+        }
+}
+
+// generateHomepageHTML generates the main page HTML
+func generateHomepageHTML(projects []ProjectSummary, storageType string) string <span class="cov0" title="0">{
+        var projectRows strings.Builder
+        
+        for _, project := range projects </span><span class="cov0" title="0">{
+                status := "Running"
+                statusClass := "status-running"
+                duration := "N/A"
+                
+                if project.LatestBuild.Finished != nil </span><span class="cov0" title="0">{
+                        status = "Completed"
+                        statusClass = "status-completed"
+                        if project.LatestBuild.Duration != nil </span><span class="cov0" title="0">{
+                                duration = fmt.Sprintf("%ds", *project.LatestBuild.Duration)
+                        }</span>
+                }
+                
+                // Only make clickable if not in lightweight mode
+                <span class="cov0" title="0">if lightweightMode </span><span class="cov0" title="0">{
+                        projectRows.WriteString(fmt.Sprintf(`
+                                &lt;tr&gt;
+                                        &lt;td&gt;%s&lt;/td&gt;
+                                        &lt;td&gt;%s&lt;/td&gt;
+                                        &lt;td&gt;&lt;span class="%s"&gt;%s&lt;/span&gt;&lt;/td&gt;
+                                        &lt;td&gt;%s&lt;/td&gt;
+                                        &lt;td&gt;%s&lt;/td&gt;
+                                        &lt;td&gt;%d&lt;/td&gt;
+                                &lt;/tr&gt;`,
+                                project.Name,
+                                project.LatestBuild.BuildID,
+                                statusClass,
+                                status,
+                                project.LatestBuild.Started.Format("2006-01-02 15:04:05"),
+                                duration,
+                                project.BuildCount,
+                        ))
+                }</span> else<span class="cov0" title="0"> {
+                        projectRows.WriteString(fmt.Sprintf(`
+                                &lt;tr onclick="window.location.href='/project?name=%s'" style="cursor: pointer;"&gt;
+                                        &lt;td&gt;%s&lt;/td&gt;
+                                        &lt;td&gt;%s&lt;/td&gt;
+                                        &lt;td&gt;&lt;span class="%s"&gt;%s&lt;/span&gt;&lt;/td&gt;
+                                        &lt;td&gt;%s&lt;/td&gt;
+                                        &lt;td&gt;%s&lt;/td&gt;
+                                        &lt;td&gt;%d&lt;/td&gt;
+                                &lt;/tr&gt;`,
+                                project.Name,
+                                project.Name,
+                                project.LatestBuild.BuildID,
+                                statusClass,
+                                status,
+                                project.LatestBuild.Started.Format("2006-01-02 15:04:05"),
+                                duration,
+                                project.BuildCount,
+                        ))
+                }</span>
+        }
+
+        <span class="cov0" title="0">return fmt.Sprintf(`
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;head&gt;
+    &lt;title&gt;Build Counter - %s&lt;/title&gt;
+    &lt;meta name="viewport" content="width=device-width, initial-scale=1"&gt;
+    &lt;style&gt;
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; background-color: #0d1117; color: #c9d1d9; }
+        .container { max-width: 1200px; margin: 20px auto; background-color: #161b22; padding: 24px; border-radius: 12px; border: 1px solid #30363d; }
+        h1 { color: #f0f6fc; text-align: center; margin-bottom: 24px; }
+        .info { background-color: #0d1117; padding: 16px; border-radius: 8px; margin-bottom: 24px; border: 1px solid #30363d; }
+        .info strong { color: #58a6ff; }
+        table { width: 100%%; border-collapse: collapse; margin-top: 20px; }
+        th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid #30363d; }
+        th { background-color: #0d1117; font-weight: 600; color: #f0f6fc; }
+        tr:hover { background-color: #1c2128; }
+        .status-running { color: #f9826c; font-weight: 600; }
+        .status-completed { color: #3fb950; font-weight: 600; }
+        .footer { margin-top: 32px; text-align: center; color: #8b949e; font-size: 14px; }
+        .api-links { margin-top: 24px; padding-top: 24px; border-top: 1px solid #30363d; }
+        .api-links a { margin-right: 20px; color: #58a6ff; text-decoration: none; font-weight: 500; }
+        .api-links a:hover { text-decoration: underline; }
+    &lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+    &lt;div class="container"&gt;
+        &lt;h1&gt;Build Counter Dashboard&lt;/h1&gt;
+        &lt;div class="info"&gt;
+            &lt;strong&gt;Storage Mode:&lt;/strong&gt; %s&lt;br&gt;
+            &lt;strong&gt;Version:&lt;/strong&gt; %s&lt;br&gt;
+            &lt;strong&gt;Projects:&lt;/strong&gt; %d
+        &lt;/div&gt;
+        
+        &lt;table&gt;
+            &lt;thead&gt;
+                &lt;tr&gt;
+                    &lt;th&gt;Project&lt;/th&gt;
+                    &lt;th&gt;Latest Build ID&lt;/th&gt;
+                    &lt;th&gt;Status&lt;/th&gt;
+                    &lt;th&gt;Started&lt;/th&gt;
+                    &lt;th&gt;Duration&lt;/th&gt;
+                    &lt;th&gt;Total Builds&lt;/th&gt;
+                &lt;/tr&gt;
+            &lt;/thead&gt;
+            &lt;tbody&gt;
+                %s
+            &lt;/tbody&gt;
+        &lt;/table&gt;
+        
+        &lt;div class="api-links"&gt;
+            &lt;strong&gt;API Endpoints:&lt;/strong&gt;
+            &lt;a href="/api/projects"&gt;JSON Projects&lt;/a&gt;
+            &lt;a href="/metrics"&gt;Metrics&lt;/a&gt;
+            &lt;a href="/health"&gt;Health&lt;/a&gt;
+        &lt;/div&gt;
+        
+        &lt;div class="footer"&gt;
+            Build Counter v%s | %s mode%s
+        &lt;/div&gt;
+    &lt;/div&gt;
+&lt;/body&gt;
+&lt;/html&gt;`,
+                storageType,
+                storageType,
+                version,
+                len(projects),
+                projectRows.String(),
+                version,
+                storageType,
+                func() string </span><span class="cov0" title="0">{
+                        if lightweightMode </span><span class="cov0" title="0">{
+                                return ""
+                        }</span>
+                        <span class="cov0" title="0">return " | Click rows to view build history"</span>
+                }(),
+        )
+}
+
+// generateProjectBuildsHTML generates the project builds page HTML
+func generateProjectBuildsHTML(projectName string, builds []Build) string <span class="cov0" title="0">{
+        var buildRows strings.Builder
+        
+        for _, build := range builds </span><span class="cov0" title="0">{
+                status := "Running"
+                statusClass := "status-running"
+                duration := "N/A"
+                finishedTime := "N/A"
+                
+                if build.Finished != nil </span><span class="cov0" title="0">{
+                        status = "Completed"
+                        statusClass = "status-completed"
+                        finishedTime = build.Finished.Format("2006-01-02 15:04:05")
+                        if build.Duration != nil </span><span class="cov0" title="0">{
+                                duration = fmt.Sprintf("%ds", *build.Duration)
+                        }</span>
+                }
+                
+                <span class="cov0" title="0">buildRows.WriteString(fmt.Sprintf(`
+                        &lt;tr&gt;
+                                &lt;td&gt;%d&lt;/td&gt;
+                                &lt;td&gt;%s&lt;/td&gt;
+                                &lt;td&gt;&lt;span class="%s"&gt;%s&lt;/span&gt;&lt;/td&gt;
+                                &lt;td&gt;%s&lt;/td&gt;
+                                &lt;td&gt;%s&lt;/td&gt;
+                                &lt;td&gt;%s&lt;/td&gt;
+                        &lt;/tr&gt;`,
+                        build.ID,
+                        build.BuildID,
+                        statusClass,
+                        status,
+                        build.Started.Format("2006-01-02 15:04:05"),
+                        finishedTime,
+                        duration,
+                ))</span>
+        }
+
+        <span class="cov0" title="0">return fmt.Sprintf(`
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;head&gt;
+    &lt;title&gt;Build Counter - %s&lt;/title&gt;
+    &lt;meta name="viewport" content="width=device-width, initial-scale=1"&gt;
+    &lt;style&gt;
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; background-color: #0d1117; color: #c9d1d9; }
+        .container { max-width: 1200px; margin: 20px auto; background-color: #161b22; padding: 24px; border-radius: 12px; border: 1px solid #30363d; }
+        h1 { color: #f0f6fc; text-align: center; margin-bottom: 24px; }
+        .breadcrumb { margin-bottom: 20px; }
+        .breadcrumb a { color: #58a6ff; text-decoration: none; font-weight: 500; }
+        .breadcrumb a:hover { text-decoration: underline; }
+        table { width: 100%%; border-collapse: collapse; margin-top: 20px; }
+        th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid #30363d; }
+        th { background-color: #0d1117; font-weight: 600; color: #f0f6fc; }
+        tr:hover { background-color: #1c2128; }
+        .status-running { color: #f9826c; font-weight: 600; }
+        .status-completed { color: #3fb950; font-weight: 600; }
+        .footer { margin-top: 32px; text-align: center; color: #8b949e; font-size: 14px; }
+        .api-links { margin-top: 24px; padding-top: 24px; border-top: 1px solid #30363d; }
+        .api-links a { margin-right: 20px; color: #58a6ff; text-decoration: none; font-weight: 500; }
+        .api-links a:hover { text-decoration: underline; }
+    &lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+    &lt;div class="container"&gt;
+        &lt;div class="breadcrumb"&gt;
+            &lt;a href="/"&gt;← Back to Dashboard&lt;/a&gt;
+        &lt;/div&gt;
+        &lt;h1&gt;Build History: %s&lt;/h1&gt;
+        
+        &lt;table&gt;
+            &lt;thead&gt;
+                &lt;tr&gt;
+                    &lt;th&gt;Build ID&lt;/th&gt;
+                    &lt;th&gt;Build Name&lt;/th&gt;
+                    &lt;th&gt;Status&lt;/th&gt;
+                    &lt;th&gt;Started&lt;/th&gt;
+                    &lt;th&gt;Finished&lt;/th&gt;
+                    &lt;th&gt;Duration&lt;/th&gt;
+                &lt;/tr&gt;
+            &lt;/thead&gt;
+            &lt;tbody&gt;
+                %s
+            &lt;/tbody&gt;
+        &lt;/table&gt;
+        
+        &lt;div class="api-links"&gt;
+            &lt;strong&gt;API Endpoints:&lt;/strong&gt;
+            &lt;a href="/api/projects/%s"&gt;JSON Builds&lt;/a&gt;
+            &lt;a href="/api/projects"&gt;All Projects&lt;/a&gt;
+        &lt;/div&gt;
+        
+        &lt;div class="footer"&gt;
+            Build Counter v%s | %d builds shown
+        &lt;/div&gt;
+    &lt;/div&gt;
+&lt;/body&gt;
+&lt;/html&gt;`,
+                projectName,
+                projectName,
+                buildRows.String(),
+                projectName,
+                version,
+                len(builds),
+        )</span>
+}
+
+// printHelp displays usage information
+func printHelp() <span class="cov0" title="0">{
+        fmt.Printf(`build-counter version %s
+
+A simple HTTP service for tracking build start and finish times.
+
+Usage:
+  build-counter [options]
+
+Options:
+  --version          Show version information
+  --help             Show this help message
+  --lightweight      Use Kubernetes ConfigMap storage instead of database
+  --health-check     Check if service is healthy (for Docker healthcheck)
+
+Environment Variables:
+  DATABASE_URL       PostgreSQL connection string (required for default mode)
+  NAMESPACE          Kubernetes namespace for ConfigMap (default: default)
+  CONFIGMAP_NAME     Name of ConfigMap to use (default: build-counter)
+
+Examples:
+  # Start with database (default)
+  build-counter
+
+  # Start with ConfigMap storage
+  build-counter --lightweight
+
+  # Check version
+  build-counter --version
+
+For more information, see: https://github.com/rossigee/build-counter
+`, version)
+}</span>
+
+var lightweightMode bool
+
+func main() <span class="cov0" title="0">{
+        // Handle command line flags
+        if len(os.Args) &gt; 1 </span><span class="cov0" title="0">{
+                switch os.Args[1] </span>{
+                case "--version":<span class="cov0" title="0">
+                        fmt.Printf("build-counter version %s\n", version)
+                        return</span>
+                case "--help", "-h":<span class="cov0" title="0">
+                        printHelp()
+                        return</span>
+                case "--lightweight":<span class="cov0" title="0">
+                        lightweightMode = true</span>
+                case "--health-check":<span class="cov0" title="0">
+                        resp, err := http.Get("http://localhost:8080/health")
+                        if err != nil || resp.StatusCode != 200 </span><span class="cov0" title="0">{
+                                os.Exit(1)
+                        }</span>
+                        <span class="cov0" title="0">os.Exit(0)</span>
+                default:<span class="cov0" title="0">
+                        fmt.Printf("Unknown option: %s\n", os.Args[1])
+                        fmt.Println("Use --help for usage information")
+                        os.Exit(1)</span>
+                }
+        }
+
+        // Initialize tracing
+        <span class="cov0" title="0">tracingCleanup, err := initTracing()
+        if err != nil </span><span class="cov0" title="0">{
+                log.Printf("Failed to initialize tracing: %v", err)
+                // Continue without tracing
+        }</span>
+        <span class="cov0" title="0">defer tracingCleanup()
+
+        // Initialize storage
+        if lightweightMode </span><span class="cov0" title="0">{
+                storage, err = NewConfigMapStorage()
+                if err != nil </span><span class="cov0" title="0">{
+                        log.Fatalf("Failed to initialize ConfigMap storage: %v", err)
+                }</span>
+                <span class="cov0" title="0">log.Println("Using Kubernetes ConfigMap storage")</span>
+        } else<span class="cov0" title="0"> {
+                storage, err = NewDatabaseStorage()
+                if err != nil </span><span class="cov0" title="0">{
+                        log.Fatalf("Failed to initialize database storage: %v", err)
+                }</span>
+                <span class="cov0" title="0">log.Println("Using PostgreSQL database storage")</span>
+        }
+
+        // Set up routes
+        <span class="cov0" title="0">mux := http.NewServeMux()
+        
+        // Build tracking endpoints
+        mux.HandleFunc("/start", methodFilter(startBuildHandler()))
+        mux.HandleFunc("/finish", methodFilter(finishBuildHandler()))
+        
+        // Health check endpoints
+        mux.HandleFunc("/health", healthHandler())
+        mux.HandleFunc("/healthz", livenessHandler())
+        mux.HandleFunc("/readyz", readinessHandler())
+        
+        // Metrics endpoint
+        mux.HandleFunc("/metrics", metricsHandler())
+        
+        // REST API endpoints
+        mux.HandleFunc("/api/projects", apiProjectsHandler())
+        mux.HandleFunc("/api/projects/", apiProjectBuildsHandler())
+        
+        // Web interface endpoints
+        mux.HandleFunc("/", homepageHandler())
+        mux.HandleFunc("/project", projectBuildsHandler())
+
+        // Add OpenTelemetry HTTP instrumentation and security headers
+        handler := securityHeadersMiddleware(otelhttp.NewHandler(mux, "build-counter"))
+
+        server := &amp;http.Server{
+                Addr:         ":8080",
+                Handler:      handler,
+                ReadTimeout:  10 * time.Second,
+                WriteTimeout: 10 * time.Second,
+                IdleTimeout:  60 * time.Second,
+        }
+
+        storageTypeStr := "database"
+        if lightweightMode </span><span class="cov0" title="0">{
+                storageTypeStr = "configmap"
+        }</span>
+        
+        <span class="cov0" title="0">fmt.Printf("Starting build-counter version %s on port 8080...\n", version)
+        fmt.Printf("Storage: %s\n", storageTypeStr)
+        fmt.Printf("Web interface: http://localhost:8080/\n")
+        log.Fatal(server.ListenAndServe())</span>
+}
+</pre>
+		
+		<pre class="file" id="file3" style="display: none">package main
+
+import (
+        "context"
+        "fmt"
+        "log"
+        "os"
+        "time"
+
+        "go.opentelemetry.io/otel"
+        "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+        "go.opentelemetry.io/otel/propagation"
+        "go.opentelemetry.io/otel/sdk/resource"
+        sdktrace "go.opentelemetry.io/otel/sdk/trace"
+        semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
+        "go.opentelemetry.io/otel/trace"
+)
+
+var tracer trace.Tracer
+
+// initTracing initializes OpenTelemetry tracing if environment variables are set
+func initTracing() (func(), error) <span class="cov0" title="0">{
+        // Check if tracing is enabled
+        endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+        if endpoint == "" </span><span class="cov0" title="0">{
+                endpoint = os.Getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
+        }</span>
+        
+        <span class="cov0" title="0">if endpoint == "" </span><span class="cov0" title="0">{
+                log.Println("OpenTelemetry tracing disabled (no OTEL_EXPORTER_OTLP_ENDPOINT set)")
+                tracer = otel.Tracer("build-counter")
+                return func() </span>{<span class="cov0" title="0">}</span>, nil
+        }
+
+        <span class="cov0" title="0">log.Printf("Initializing OpenTelemetry tracing with endpoint: %s", endpoint)
+
+        // Create OTLP HTTP exporter
+        ctx := context.Background()
+        
+        // Configure exporter options
+        opts := []otlptracehttp.Option{
+                otlptracehttp.WithEndpoint(endpoint),
+        }
+        
+        // Add headers if provided
+        if headers := os.Getenv("OTEL_EXPORTER_OTLP_HEADERS"); headers != "" </span><span class="cov0" title="0">{
+                // Parse headers from environment variable
+                // Format: key1=value1,key2=value2
+                headerMap := make(map[string]string)
+                // Simple parsing - in production you might want more robust parsing
+                log.Printf("Using OTEL headers: %s", headers)
+                opts = append(opts, otlptracehttp.WithHeaders(headerMap))
+        }</span>
+        
+        // Check if insecure connection is requested
+        <span class="cov0" title="0">if os.Getenv("OTEL_EXPORTER_OTLP_INSECURE") == "true" </span><span class="cov0" title="0">{
+                opts = append(opts, otlptracehttp.WithInsecure())
+        }</span>
+
+        <span class="cov0" title="0">exporter, err := otlptracehttp.New(ctx, opts...)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("failed to create OTLP exporter: %w", err)
+        }</span>
+
+        // Create resource
+        <span class="cov0" title="0">serviceName := os.Getenv("OTEL_SERVICE_NAME")
+        if serviceName == "" </span><span class="cov0" title="0">{
+                serviceName = "build-counter"
+        }</span>
+        
+        <span class="cov0" title="0">serviceVersion := os.Getenv("OTEL_SERVICE_VERSION")
+        if serviceVersion == "" </span><span class="cov0" title="0">{
+                serviceVersion = version
+        }</span>
+
+        <span class="cov0" title="0">res, err := resource.New(ctx,
+                resource.WithAttributes(
+                        semconv.ServiceNameKey.String(serviceName),
+                        semconv.ServiceVersionKey.String(serviceVersion),
+                ),
+        )
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("failed to create resource: %w", err)
+        }</span>
+
+        // Create trace provider
+        <span class="cov0" title="0">tp := sdktrace.NewTracerProvider(
+                sdktrace.WithBatcher(exporter),
+                sdktrace.WithResource(res),
+                sdktrace.WithSampler(sdktrace.AlwaysSample()),
+        )
+
+        // Set global trace provider
+        otel.SetTracerProvider(tp)
+        otel.SetTextMapPropagator(propagation.TraceContext{})
+
+        // Create tracer
+        tracer = tp.Tracer("build-counter")
+
+        log.Println("OpenTelemetry tracing initialized successfully")
+
+        // Return cleanup function
+        return func() </span><span class="cov0" title="0">{
+                log.Println("Shutting down OpenTelemetry tracing...")
+                ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+                defer cancel()
+                if err := tp.Shutdown(ctx); err != nil </span><span class="cov0" title="0">{
+                        log.Printf("Error shutting down trace provider: %v", err)
+                }</span>
+        }, nil
+}
+
+// startSpan starts a new span with the given name and returns the span and context
+func startSpan(ctx context.Context, name string) (context.Context, trace.Span) <span class="cov8" title="1">{
+        if tracer == nil </span><span class="cov8" title="1">{
+                // Return a no-op span if tracer is not initialized (e.g., during tests)
+                return ctx, trace.SpanFromContext(ctx)
+        }</span>
+        <span class="cov0" title="0">return tracer.Start(ctx, name)</span>
+}
+
+// recordError records an error in the span
+func recordError(span trace.Span, err error) <span class="cov8" title="1">{
+        if err != nil &amp;&amp; span != nil </span><span class="cov8" title="1">{
+                span.RecordError(err)
+        }</span>
+}</pre>
+		
+		</div>
+	</body>
+	<script>
+	(function() {
+		var files = document.getElementById('files');
+		var visible;
+		files.addEventListener('change', onChange, false);
+		function select(part) {
+			if (visible)
+				visible.style.display = 'none';
+			visible = document.getElementById(part);
+			if (!visible)
+				return;
+			files.value = part;
+			visible.style.display = 'block';
+			location.hash = part;
+		}
+		function onChange() {
+			select(files.value);
+			window.scrollTo(0, 0);
+		}
+		if (location.hash != "") {
+			select(location.hash.substr(1));
+		}
+		if (!visible) {
+			select("file0");
+		}
+	})();
+	</script>
+</html>

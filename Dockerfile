@@ -23,13 +23,14 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -a -installsuffix cgo \
     -o build-counter .
 
-# Final stage
-FROM scratch
+# Final stage - using alpine for Kubernetes tools
+FROM alpine:3.19
 
-# Import from builder
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
-COPY --from=builder /etc/passwd /etc/passwd
+# Install ca-certificates and curl for health checks
+RUN apk add --no-cache ca-certificates curl tzdata
+
+# Create non-root user
+RUN adduser -D -g '' appuser
 
 # Copy the binary
 COPY --from=builder /build/build-counter /build-counter
@@ -40,9 +41,13 @@ USER appuser
 # Expose port
 EXPOSE 8080
 
-# Health check
+# Health check using the /healthz endpoint
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD ["/build-counter", "--health-check"] || exit 1
+  CMD curl -f http://localhost:8080/healthz || exit 1
+
+# Set environment variables for Kubernetes
+ENV KUBERNETES_NAMESPACE=default
+ENV PORT=8080
 
 # Run the binary
 ENTRYPOINT ["/build-counter"]

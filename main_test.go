@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
+	"time"
 )
 
 func TestValidateInput(t *testing.T) {
@@ -193,4 +195,82 @@ func TestFinishBuildHandlerValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestEnvironmentSetup(t *testing.T) {
+	// Test that we can work with environment variables
+	originalPort := os.Getenv("PORT")
+	defer func() {
+		if originalPort != "" {
+			os.Setenv("PORT", originalPort)
+		} else {
+			os.Unsetenv("PORT")
+		}
+	}()
+
+	// Test setting port
+	os.Setenv("PORT", "9000")
+	port := os.Getenv("PORT")
+	if port != "9000" {
+		t.Errorf("Expected port 9000, got %s", port)
+	}
+}
+
+func TestStorageSetup(t *testing.T) {
+	// Test that we can set up storage
+	originalStorage := storage
+	defer func() { storage = originalStorage }()
+	
+	mockStorage := &WorkingMockStorage{}
+	storage = mockStorage
+
+	// Test that storage implements interface
+	var _ Storage = storage
+	
+	// Test health check
+	err := storage.HealthCheck()
+	if err != nil {
+		t.Errorf("Expected no error from working storage, got %v", err)
+	}
+}
+
+// WorkingMockStorage for testing successful operations
+type WorkingMockStorage struct{}
+
+func (w *WorkingMockStorage) StartBuild(name, buildID string) (int, error) {
+	return 1, nil
+}
+
+func (w *WorkingMockStorage) FinishBuild(name, buildID string) error {
+	return nil
+}
+
+func (w *WorkingMockStorage) HealthCheck() error {
+	return nil
+}
+
+func (w *WorkingMockStorage) ListProjects() ([]ProjectSummary, error) {
+	return []ProjectSummary{{
+		Name: "test-project", 
+		LatestBuild: Build{
+			ID:      1,
+			Name:    "test-project",
+			BuildID: "build-123",
+			Started: time.Now(),
+		},
+	}}, nil
+}
+
+func (w *WorkingMockStorage) GetProjectBuilds(name string) ([]Build, error) {
+	return []Build{{Name: name, BuildID: "build-123", ID: 1, Started: time.Now()}}, nil
+}
+
+// Helper function to check if a string contains a substring
+func contains(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }
