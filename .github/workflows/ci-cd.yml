@@ -139,6 +139,7 @@ jobs:
       pages: write
       id-token: write
       packages: write
+      actions: read
     steps:
     - uses: actions/checkout@v4
       with:
@@ -166,23 +167,62 @@ jobs:
 
     - name: Publish to GitHub Pages
       run: |
-        # Create gh-pages branch if it doesn't exist
-        git checkout gh-pages 2>/dev/null || git checkout -b gh-pages
-        
-        # Create index.yaml if it doesn't exist
-        if [ ! -f index.yaml ]; then
+        set -e  # Exit on error
+
+        # Save the chart package before switching branches
+        CHART_PACKAGE=$(ls build-counter-*.tgz | head -1)
+        if [ -z "$CHART_PACKAGE" ]; then
+          echo "Error: No chart package found"
+          ls -la
+          exit 1
+        fi
+        echo "Found chart package: $CHART_PACKAGE"
+
+        # Copy chart to temp location
+        cp "$CHART_PACKAGE" /tmp/
+
+        # Fetch all branches to ensure we have gh-pages if it exists
+        echo "Fetching remote branches..."
+        git fetch origin --depth=1 || true
+
+        # Check if gh-pages exists remotely and handle accordingly
+        if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
+          echo "gh-pages branch exists remotely, checking out..."
+          git checkout gh-pages
+          git pull origin gh-pages || true
+        else
+          echo "Creating new gh-pages branch..."
+          git checkout --orphan gh-pages
+          git rm -rf . || true
+          # Create a basic .gitignore for gh-pages
+          echo "*.log" > .gitignore
+        fi
+
+        # Restore the chart package
+        cp "/tmp/$CHART_PACKAGE" .
+        echo "Chart package restored to gh-pages branch"
+
+        # Create or update index.yaml
+        echo "Creating/updating Helm repository index..."
+        if [ -f index.yaml ]; then
+          helm repo index . --url https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }} --merge index.yaml
+        else
           helm repo index . --url https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
         fi
-        
-        # Move the new chart package
-        mv build-counter-*.tgz .
-        
-        # Update the index
-        helm repo index . --url https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }} --merge index.yaml
-        
-        # Commit and push
+
+        # Configure git user for commit
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+
+        # Commit and push changes
+        echo "Committing changes..."
         git add .
-        git commit -m "Add Helm chart version ${GITHUB_REF#refs/tags/v}"
+        git commit -m "Add Helm chart version ${GITHUB_REF#refs/tags/v}" || {
+          echo "No changes to commit"
+          exit 0
+        }
+
+        echo "Pushing to gh-pages..."
         git push origin gh-pages
 
     - name: Push Helm Chart to GHCR
