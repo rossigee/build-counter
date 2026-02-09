@@ -16,6 +16,8 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+const tracingTimeout = 10 * time.Second
+
 var tracer trace.Tracer
 
 // initTracing initializes OpenTelemetry tracing if environment variables are set
@@ -25,7 +27,7 @@ func initTracing() (func(), error) {
 	if endpoint == "" {
 		endpoint = os.Getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
 	}
-	
+
 	if endpoint == "" {
 		log.Println("OpenTelemetry tracing disabled (no OTEL_EXPORTER_OTLP_ENDPOINT set)")
 		tracer = otel.Tracer("build-counter")
@@ -36,12 +38,12 @@ func initTracing() (func(), error) {
 
 	// Create OTLP HTTP exporter
 	ctx := context.Background()
-	
+
 	// Configure exporter options
 	opts := []otlptracehttp.Option{
 		otlptracehttp.WithEndpoint(endpoint),
 	}
-	
+
 	// Add headers if provided
 	if headers := os.Getenv("OTEL_EXPORTER_OTLP_HEADERS"); headers != "" {
 		// Parse headers from environment variable
@@ -51,7 +53,7 @@ func initTracing() (func(), error) {
 		log.Printf("Using OTEL headers: %s", headers)
 		opts = append(opts, otlptracehttp.WithHeaders(headerMap))
 	}
-	
+
 	// Check if insecure connection is requested
 	if os.Getenv("OTEL_EXPORTER_OTLP_INSECURE") == "true" {
 		opts = append(opts, otlptracehttp.WithInsecure())
@@ -67,7 +69,7 @@ func initTracing() (func(), error) {
 	if serviceName == "" {
 		serviceName = "build-counter"
 	}
-	
+
 	serviceVersion := os.Getenv("OTEL_SERVICE_VERSION")
 	if serviceVersion == "" {
 		serviceVersion = version
@@ -102,7 +104,7 @@ func initTracing() (func(), error) {
 	// Return cleanup function
 	return func() {
 		log.Println("Shutting down OpenTelemetry tracing...")
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), tracingTimeout)
 		defer cancel()
 		if err := tp.Shutdown(ctx); err != nil {
 			log.Printf("Error shutting down trace provider: %v", err)
@@ -110,13 +112,14 @@ func initTracing() (func(), error) {
 	}, nil
 }
 
-// startSpan starts a new span with the given name and returns the span and context
-func startSpan(ctx context.Context, name string) (context.Context, trace.Span) {
+// startSpan starts a new span with the given name and returns the span
+func startSpan(ctx context.Context, name string) trace.Span {
 	if tracer == nil {
 		// Return a no-op span if tracer is not initialized (e.g., during tests)
-		return ctx, trace.SpanFromContext(ctx)
+		return trace.SpanFromContext(ctx)
 	}
-	return tracer.Start(ctx, name)
+	_, span := tracer.Start(ctx, name)
+	return span
 }
 
 // recordError records an error in the span

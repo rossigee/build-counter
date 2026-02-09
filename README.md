@@ -3,7 +3,7 @@
 A modern HTTP service for tracking build start and finish times in CI/CD pipelines with web dashboard, metrics, and dual storage modes.
 
 [![CI/CD Pipeline](https://github.com/rossigee/build-counter/workflows/CI%2FCD%20Pipeline/badge.svg)](https://github.com/rossigee/build-counter/actions)
-[![Go Version](https://img.shields.io/badge/Go-1.24-blue.svg)](https://go.dev)
+[![Go Version](https://img.shields.io/badge/Go-1.25.7-blue.svg)](https://go.dev)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Docker Pulls](https://img.shields.io/docker/pulls/rossigee/build-counter)](https://hub.docker.com/r/rossigee/build-counter)
 [![Helm Chart](https://img.shields.io/badge/Helm-v3-blue.svg)](https://rossigee.github.io/build-counter)
@@ -48,7 +48,7 @@ The build counter includes a modern web dashboard accessible at `http://localhos
 
 **Prerequisites:**
 - PostgreSQL database
-- Go 1.24+ or Docker
+- Go 1.25.7+ or Docker
 
 **Setup:**
 ```bash

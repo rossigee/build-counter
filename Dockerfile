@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.24.6-alpine AS builder
+FROM golang:1.25.7-alpine AS builder
 
 # Install git and ca-certificates for private modules
 RUN apk add --no-cache git ca-certificates tzdata
@@ -24,7 +24,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -o build-counter .
 
 # Final stage - using alpine for Kubernetes tools
-FROM alpine:3.19
+FROM alpine:3.23
 
 # Install ca-certificates and curl for health checks
 RUN apk add --no-cache ca-certificates curl tzdata

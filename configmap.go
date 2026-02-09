@@ -1,3 +1,4 @@
+// Package configmap implements storage using Kubernetes ConfigMaps.
 package main
 
 import (
@@ -15,13 +16,18 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
+const (
+	configMapTimeout5s  = 5 * time.Second
+	configMapTimeout10s = 10 * time.Second
+)
+
 // BuildInfo represents the structure stored in ConfigMap
 type BuildInfo struct {
-	Name      string    `json:"name"`
-	BuildID   string    `json:"build_id"`
-	Started   time.Time `json:"started"`
-	Finished  *time.Time `json:"finished,omitempty"`
-	ID        int       `json:"id"`
+	Name     string     `json:"name"`
+	BuildID  string     `json:"build_id"`
+	Started  time.Time  `json:"started"`
+	Finished *time.Time `json:"finished,omitempty"`
+	ID       int        `json:"id"`
 }
 
 // ConfigMapStorage handles build tracking using Kubernetes ConfigMaps
@@ -70,7 +76,7 @@ func NewConfigMapStorage() (*ConfigMapStorage, error) {
 
 // StartBuild records the start of a build
 func (cms *ConfigMapStorage) StartBuild(name, buildID string) (int, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), configMapTimeout10s)
 	defer cancel()
 
 	// Get or create the ConfigMap
@@ -96,10 +102,10 @@ func (cms *ConfigMapStorage) StartBuild(name, buildID string) (int, error) {
 
 	// Generate a simple ID (timestamp-based)
 	buildInfo := BuildInfo{
-		Name:     name,
-		BuildID:  buildID,
-		Started:  time.Now(),
-		ID:       int(time.Now().Unix()),
+		Name:    name,
+		BuildID: buildID,
+		Started: time.Now(),
+		ID:      int(time.Now().Unix()),
 	}
 
 	data, err := json.Marshal(buildInfo)
@@ -120,7 +126,7 @@ func (cms *ConfigMapStorage) StartBuild(name, buildID string) (int, error) {
 
 // FinishBuild records the completion of a build
 func (cms *ConfigMapStorage) FinishBuild(name, buildID string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), configMapTimeout10s)
 	defer cancel()
 
 	// Get the ConfigMap
@@ -172,7 +178,7 @@ func (cms *ConfigMapStorage) FinishBuild(name, buildID string) error {
 
 // HealthCheck verifies the ConfigMap storage is accessible
 func (cms *ConfigMapStorage) HealthCheck() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), configMapTimeout5s)
 	defer cancel()
 
 	_, err := cms.client.CoreV1().ConfigMaps(cms.namespace).Get(ctx, cms.configMap, metav1.GetOptions{})
@@ -195,7 +201,7 @@ func (cms *ConfigMapStorage) HealthCheck() error {
 
 // GetBuildInfo retrieves current build information for a name
 func (cms *ConfigMapStorage) GetBuildInfo(name string) (*BuildInfo, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), configMapTimeout5s)
 	defer cancel()
 
 	cm, err := cms.client.CoreV1().ConfigMaps(cms.namespace).Get(ctx, cms.configMap, metav1.GetOptions{})
@@ -222,7 +228,7 @@ func (cms *ConfigMapStorage) GetBuildInfo(name string) (*BuildInfo, error) {
 
 // ListBuilds returns all current build information
 func (cms *ConfigMapStorage) ListBuilds() (map[string]BuildInfo, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), configMapTimeout5s)
 	defer cancel()
 
 	cm, err := cms.client.CoreV1().ConfigMaps(cms.namespace).Get(ctx, cms.configMap, metav1.GetOptions{})
@@ -262,7 +268,7 @@ func (cms *ConfigMapStorage) ListProjects() ([]ProjectSummary, error) {
 			BuildID: buildInfo.BuildID,
 			Started: buildInfo.Started,
 		}
-		
+
 		if buildInfo.Finished != nil {
 			build.Finished = buildInfo.Finished
 			duration := buildInfo.Finished.Sub(buildInfo.Started).Seconds()
@@ -293,7 +299,7 @@ func (cms *ConfigMapStorage) GetProjectBuilds(name string) ([]Build, error) {
 		BuildID: buildInfo.BuildID,
 		Started: buildInfo.Started,
 	}
-	
+
 	if buildInfo.Finished != nil {
 		build.Finished = buildInfo.Finished
 		duration := buildInfo.Finished.Sub(buildInfo.Started).Seconds()

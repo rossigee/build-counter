@@ -14,7 +14,7 @@ import (
 )
 
 func TestConfigMapStorage_StartBuild(t *testing.T) {
-	client := fake.NewSimpleClientset()
+	client := fake.NewClientset()
 	storage := &ConfigMapStorage{
 		client:    client,
 		namespace: "default",
@@ -45,8 +45,8 @@ func TestConfigMapStorage_StartBuild(t *testing.T) {
 }
 
 func TestConfigMapStorage_FinishBuild(t *testing.T) {
-	client := fake.NewSimpleClientset()
-	
+	client := fake.NewClientset()
+
 	// Pre-create ConfigMap with build data
 	cm := &v1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -90,7 +90,7 @@ func TestConfigMapStorage_FinishBuild(t *testing.T) {
 
 func TestConfigMapStorage_HealthCheck(t *testing.T) {
 	// Test with healthy client
-	client := fake.NewSimpleClientset()
+	client := fake.NewClientset()
 	storage := &ConfigMapStorage{
 		client:    client,
 		namespace: "default",
@@ -103,7 +103,7 @@ func TestConfigMapStorage_HealthCheck(t *testing.T) {
 	}
 
 	// Test with failing client
-	client.PrependReactor("get", "configmaps", func(action ktesting.Action) (handled bool, ret runtime.Object, err error) {
+	client.PrependReactor("get", "configmaps", func(_ ktesting.Action) (handled bool, ret runtime.Object, err error) {
 		return true, nil, errors.New("Internal Server Error")
 	})
 
@@ -114,8 +114,8 @@ func TestConfigMapStorage_HealthCheck(t *testing.T) {
 }
 
 func TestConfigMapStorage_ListProjects(t *testing.T) {
-	client := fake.NewSimpleClientset()
-	
+	client := fake.NewClientset()
+
 	// Pre-create ConfigMap with multiple projects
 	cm := &v1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -161,8 +161,8 @@ func TestConfigMapStorage_ListProjects(t *testing.T) {
 }
 
 func TestConfigMapStorage_GetProjectBuilds(t *testing.T) {
-	client := fake.NewSimpleClientset()
-	
+	client := fake.NewClientset()
+
 	// Pre-create ConfigMap with project data
 	cm := &v1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -216,17 +216,17 @@ func containsSubstring(s, substr string) bool {
 }
 
 // Test storage interface compliance
-func TestStorageInterface(t *testing.T) {
+func TestStorageInterface(_ *testing.T) {
 	// Test that ConfigMapStorage implements Storage interface
 	var _ Storage = &ConfigMapStorage{}
-	
+
 	// Test that DatabaseStorage implements Storage interface
 	var _ Storage = &DatabaseStorage{}
 }
 
 // Benchmark tests
 func BenchmarkConfigMapStorage_StartBuild(b *testing.B) {
-	client := fake.NewSimpleClientset()
+	client := fake.NewClientset()
 	storage := &ConfigMapStorage{
 		client:    client,
 		namespace: "default",
@@ -235,20 +235,20 @@ func BenchmarkConfigMapStorage_StartBuild(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		storage.StartBuild("bench-project", "build-"+time.Now().String())
+		_, _ = storage.StartBuild("bench-project", "build-"+time.Now().String())
 	}
 }
 
 func BenchmarkConfigMapStorage_ListProjects(b *testing.B) {
-	client := fake.NewSimpleClientset()
-	
+	client := fake.NewClientset()
+
 	// Pre-populate with test data
 	data := make(map[string]string)
 	for i := 0; i < 100; i++ {
 		projectName := "project-" + time.Now().String()
 		data[projectName] = `{"name":"` + projectName + `","build_id":"build-1","started":"2023-01-01T00:00:00Z","id":1}`
 	}
-	
+
 	cm := &v1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "build-counter",
@@ -256,7 +256,7 @@ func BenchmarkConfigMapStorage_ListProjects(b *testing.B) {
 		},
 		Data: data,
 	}
-	client.CoreV1().ConfigMaps("default").Create(context.TODO(), cm, metav1.CreateOptions{})
+	_, _ = client.CoreV1().ConfigMaps("default").Create(context.TODO(), cm, metav1.CreateOptions{})
 
 	storage := &ConfigMapStorage{
 		client:    client,
@@ -266,6 +266,6 @@ func BenchmarkConfigMapStorage_ListProjects(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		storage.ListProjects()
+		_, _ = storage.ListProjects()
 	}
 }

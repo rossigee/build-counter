@@ -51,7 +51,7 @@ clean:
 
 # Install development dependencies
 dev-deps:
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.8.0
 	go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest
 
 # Create a new release tag

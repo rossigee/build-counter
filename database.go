@@ -10,6 +10,15 @@ import (
 	_ "github.com/lib/pq"
 )
 
+const (
+	maxOpenConns    = 25
+	maxIdleConns    = 25
+	connMaxLifetime = 5 * time.Minute
+	timeout5s       = 5 * time.Second
+	timeout10s      = 10 * time.Second
+	timeout2s       = 2 * time.Second
+)
+
 // DatabaseStorage handles build tracking using PostgreSQL
 type DatabaseStorage struct {
 	connStr string
@@ -35,15 +44,15 @@ func (ds *DatabaseStorage) connectDatabase() (*sql.DB, error) {
 	}
 
 	// Configure connection pool
-	db.SetMaxOpenConns(25)
-	db.SetMaxIdleConns(25)
-	db.SetConnMaxLifetime(5 * time.Minute)
+	db.SetMaxOpenConns(maxOpenConns)
+	db.SetMaxIdleConns(maxIdleConns)
+	db.SetConnMaxLifetime(connMaxLifetime)
 
 	// Test connection
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout5s)
 	defer cancel()
 	if err = db.PingContext(ctx); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 
@@ -54,14 +63,14 @@ func (ds *DatabaseStorage) connectDatabase() (*sql.DB, error) {
 func (ds *DatabaseStorage) StartBuild(name, buildID string) (int, error) {
 	var nextID int
 	query := "INSERT INTO builds (name, build_id, started) VALUES ($1, $2, now()) RETURNING id;"
-	
+
 	db, err := ds.connectDatabase()
 	if err != nil {
 		return 0, fmt.Errorf("unable to connect to database: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout5s)
 	defer cancel()
 
 	err = db.QueryRowContext(ctx, query, name, buildID).Scan(&nextID)
@@ -75,14 +84,14 @@ func (ds *DatabaseStorage) StartBuild(name, buildID string) (int, error) {
 // FinishBuild records the completion of a build
 func (ds *DatabaseStorage) FinishBuild(name, buildID string) error {
 	query := "UPDATE builds SET finished = NOW() WHERE name = $1 AND build_id = $2"
-	
+
 	db, err := ds.connectDatabase()
 	if err != nil {
 		return fmt.Errorf("unable to connect to database: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout5s)
 	defer cancel()
 
 	_, err = db.ExecContext(ctx, query, name, buildID)
@@ -99,11 +108,11 @@ func (ds *DatabaseStorage) HealthCheck() error {
 	if err != nil {
 		return fmt.Errorf("database connection failed: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout2s)
 	defer cancel()
-	
+
 	if err := db.PingContext(ctx); err != nil {
 		return fmt.Errorf("database ping failed: %w", err)
 	}
@@ -117,9 +126,9 @@ func (ds *DatabaseStorage) ListProjects() ([]ProjectSummary, error) {
 	if err != nil {
 		return nil, fmt.Errorf("unable to connect to database: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout10s)
 	defer cancel()
 
 	query := `
@@ -138,29 +147,33 @@ func (ds *DatabaseStorage) ListProjects() ([]ProjectSummary, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error querying projects: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var projects []ProjectSummary
 	for rows.Next() {
 		var p ProjectSummary
 		var build Build
 		var finished sql.NullTime
-		
+
 		err := rows.Scan(&build.Name, &build.ID, &build.BuildID, &build.Started, &finished, &p.BuildCount)
 		if err != nil {
 			return nil, fmt.Errorf("error scanning project row: %w", err)
 		}
-		
+
 		if finished.Valid {
 			build.Finished = &finished.Time
 			duration := finished.Time.Sub(build.Started).Seconds()
 			durationInt := int64(duration)
 			build.Duration = &durationInt
 		}
-		
+
 		p.Name = build.Name
 		p.LatestBuild = build
 		projects = append(projects, p)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating project rows: %w", err)
 	}
 
 	return projects, nil
@@ -172,9 +185,9 @@ func (ds *DatabaseStorage) GetProjectBuilds(name string) ([]Build, error) {
 	if err != nil {
 		return nil, fmt.Errorf("unable to connect to database: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout10s)
 	defer cancel()
 
 	query := `
@@ -188,26 +201,30 @@ func (ds *DatabaseStorage) GetProjectBuilds(name string) ([]Build, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error querying builds for project %s: %w", name, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var builds []Build
 	for rows.Next() {
 		var build Build
 		var finished sql.NullTime
-		
+
 		err := rows.Scan(&build.ID, &build.Name, &build.BuildID, &build.Started, &finished)
 		if err != nil {
 			return nil, fmt.Errorf("error scanning build row: %w", err)
 		}
-		
+
 		if finished.Valid {
 			build.Finished = &finished.Time
 			duration := finished.Time.Sub(build.Started).Seconds()
 			durationInt := int64(duration)
 			build.Duration = &durationInt
 		}
-		
+
 		builds = append(builds, build)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating build rows: %w", err)
 	}
 
 	return builds, nil

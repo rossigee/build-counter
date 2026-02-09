@@ -19,14 +19,22 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 )
 
+const naString = "N/A"
+
+const (
+	readTimeout  = 10 * time.Second
+	writeTimeout = 10 * time.Second
+	idleTimeout  = 60 * time.Second
+)
+
 // Version is set at build time
-var version = "0.9.0"
+var version = "0.0.0"
 
 // Build represents a build record
 type Build struct {
 	ID       int        `json:"id"`
 	Name     string     `json:"name"`
-	BuildID  string     `json:"build_id"`
+	BuildID  string     `json:"buildID"`
 	Started  time.Time  `json:"started"`
 	Finished *time.Time `json:"finished,omitempty"`
 	Duration *int64     `json:"duration_seconds,omitempty"`
@@ -34,9 +42,9 @@ type Build struct {
 
 // ProjectSummary represents the latest build for a project
 type ProjectSummary struct {
-	Name        string     `json:"name"`
-	LatestBuild Build      `json:"latest_build"`
-	BuildCount  int        `json:"build_count,omitempty"`
+	Name        string `json:"name"`
+	LatestBuild Build  `json:"latest_build"`
+	BuildCount  int    `json:"build_count,omitempty"`
 }
 
 // Global storage interface
@@ -53,12 +61,12 @@ var storage Storage
 
 // Metrics tracking
 var (
-	startTime        = time.Now()
-	requestsTotal    int64
-	buildsStarted    int64
-	buildsFinished   int64
-	healthChecks     int64
-	errorCount       int64
+	startTime      = time.Now()
+	requestsTotal  int64
+	buildsStarted  int64
+	buildsFinished int64
+	healthChecks   int64
+	errorCount     int64
 )
 
 type Response struct {
@@ -77,13 +85,13 @@ func validateInput(name, buildID string) error {
 		return fmt.Errorf("name must be between 1 and 255 characters")
 	}
 	if len(buildID) == 0 || len(buildID) > 255 {
-		return fmt.Errorf("build_id must be between 1 and 255 characters")
+		return fmt.Errorf("buildID must be between 1 and 255 characters")
 	}
 	if !namePattern.MatchString(name) {
 		return fmt.Errorf("name contains invalid characters")
 	}
 	if !buildIDPattern.MatchString(buildID) {
-		return fmt.Errorf("build_id contains invalid characters")
+		return fmt.Errorf("buildID contains invalid characters")
 	}
 	return nil
 }
@@ -93,18 +101,18 @@ func startBuildHandler() http.HandlerFunc {
 
 	return func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt64(&requestsTotal, 1)
-		_, span := startSpan(r.Context(), "start-build")
+		span := startSpan(r.Context(), "start-build")
 		defer span.End()
 
 		name := strings.TrimSpace(r.URL.Query().Get("name"))
-		build_id := strings.TrimSpace(r.URL.Query().Get("build_id"))
+		buildID := strings.TrimSpace(r.URL.Query().Get("buildID"))
 
 		span.SetAttributes(
 			attribute.String("build.name", name),
-			attribute.String("build.id", build_id),
+			attribute.String("build.id", buildID),
 		)
 
-		if err := validateInput(name, build_id); err != nil {
+		if err := validateInput(name, buildID); err != nil {
 			log.Printf("Invalid input: %v", err)
 			recordError(span, err)
 			atomic.AddInt64(&errorCount, 1)
@@ -112,7 +120,7 @@ func startBuildHandler() http.HandlerFunc {
 			return
 		}
 
-		nextID, err := storage.StartBuild(name, build_id)
+		nextID, err := storage.StartBuild(name, buildID)
 		if err != nil {
 			log.Printf("Error starting build: %v", err)
 			recordError(span, err)
@@ -136,7 +144,7 @@ func startBuildHandler() http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write(jsonResp)
+		_, _ = w.Write(jsonResp)
 	}
 }
 
@@ -145,18 +153,18 @@ func finishBuildHandler() http.HandlerFunc {
 
 	return func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt64(&requestsTotal, 1)
-		_, span := startSpan(r.Context(), "finish-build")
+		span := startSpan(r.Context(), "finish-build")
 		defer span.End()
 
 		name := strings.TrimSpace(r.URL.Query().Get("name"))
-		build_id := strings.TrimSpace(r.URL.Query().Get("build_id"))
+		buildID := strings.TrimSpace(r.URL.Query().Get("buildID"))
 
 		span.SetAttributes(
 			attribute.String("build.name", name),
-			attribute.String("build.id", build_id),
+			attribute.String("build.id", buildID),
 		)
 
-		if err := validateInput(name, build_id); err != nil {
+		if err := validateInput(name, buildID); err != nil {
 			log.Printf("Invalid input: %v", err)
 			recordError(span, err)
 			atomic.AddInt64(&errorCount, 1)
@@ -164,7 +172,7 @@ func finishBuildHandler() http.HandlerFunc {
 			return
 		}
 
-		err := storage.FinishBuild(name, build_id)
+		err := storage.FinishBuild(name, buildID)
 		if err != nil {
 			log.Printf("Error finishing build: %v", err)
 			recordError(span, err)
@@ -178,6 +186,7 @@ func finishBuildHandler() http.HandlerFunc {
 	}
 }
 
+//nolint:unused
 func connectDatabase() (*sql.DB, error) {
 	connStr := os.Getenv("DATABASE_URL")
 	if connStr == "" {
@@ -190,15 +199,15 @@ func connectDatabase() (*sql.DB, error) {
 	}
 
 	// Configure connection pool
-	db.SetMaxOpenConns(25)
-	db.SetMaxIdleConns(25)
-	db.SetConnMaxLifetime(5 * time.Minute)
+	db.SetMaxOpenConns(maxOpenConns)
+	db.SetMaxIdleConns(maxIdleConns)
+	db.SetConnMaxLifetime(connMaxLifetime)
 
 	// Test connection
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout5s)
 	defer cancel()
 	if err = db.PingContext(ctx); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 
@@ -232,28 +241,28 @@ func healthHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt64(&requestsTotal, 1)
 		atomic.AddInt64(&healthChecks, 1)
-		_, span := startSpan(r.Context(), "health-check")
+		span := startSpan(r.Context(), "health-check")
 		defer span.End()
 
 		if err := storage.HealthCheck(); err != nil {
 			recordError(span, err)
 			atomic.AddInt64(&errorCount, 1)
 			w.WriteHeader(http.StatusServiceUnavailable)
-			w.Write([]byte("Storage health check failed"))
+			_, _ = w.Write([]byte("Storage health check failed"))
 			return
 		}
 
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	}
 }
 
 // livenessHandler provides a liveness probe endpoint (/healthz)
 func livenessHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, _ *http.Request) {
 		// Simple liveness check - just return OK if the service is running
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	}
 }
 
@@ -262,7 +271,7 @@ func readinessHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt64(&requestsTotal, 1)
 		atomic.AddInt64(&healthChecks, 1)
-		_, span := startSpan(r.Context(), "readiness-check")
+		span := startSpan(r.Context(), "readiness-check")
 		defer span.End()
 
 		// Readiness check - verify that storage is accessible
@@ -270,31 +279,31 @@ func readinessHandler() http.HandlerFunc {
 			recordError(span, err)
 			atomic.AddInt64(&errorCount, 1)
 			w.WriteHeader(http.StatusServiceUnavailable)
-			w.Write([]byte("Storage not ready"))
+			_, _ = w.Write([]byte("Storage not ready"))
 			return
 		}
 
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	}
 }
 
 // metricsHandler provides a Prometheus-style metrics endpoint
 func metricsHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, _ *http.Request) {
 		atomic.AddInt64(&requestsTotal, 1)
-		
+
 		uptime := time.Since(startTime).Seconds()
-		
+
 		var m runtime.MemStats
 		runtime.ReadMemStats(&m)
-		
+
 		// Get current storage type
 		storageType := "database"
 		if lightweightMode {
 			storageType = "configmap"
 		}
-		
+
 		metrics := fmt.Sprintf(`# HELP build_counter_info Information about the build counter service
 # TYPE build_counter_info gauge
 build_counter_info{version="%s",storage_type="%s"} 1
@@ -347,10 +356,10 @@ process_start_time_seconds %.2f
 			runtime.NumGoroutine(),
 			float64(startTime.Unix()),
 		)
-		
+
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(metrics))
+		_, _ = w.Write([]byte(metrics))
 	}
 }
 
@@ -358,7 +367,7 @@ process_start_time_seconds %.2f
 func apiProjectsHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt64(&requestsTotal, 1)
-		_, span := startSpan(r.Context(), "api-projects")
+		span := startSpan(r.Context(), "api-projects")
 		defer span.End()
 
 		projects, err := storage.ListProjects()
@@ -372,7 +381,7 @@ func apiProjectsHandler() http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(projects)
+		_ = json.NewEncoder(w).Encode(projects)
 	}
 }
 
@@ -380,7 +389,7 @@ func apiProjectsHandler() http.HandlerFunc {
 func apiProjectBuildsHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt64(&requestsTotal, 1)
-		_, span := startSpan(r.Context(), "api-project-builds")
+		span := startSpan(r.Context(), "api-project-builds")
 		defer span.End()
 
 		name := strings.TrimSpace(r.URL.Query().Get("name"))
@@ -402,7 +411,7 @@ func apiProjectBuildsHandler() http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(builds)
+		_ = json.NewEncoder(w).Encode(builds)
 	}
 }
 
@@ -410,7 +419,7 @@ func apiProjectBuildsHandler() http.HandlerFunc {
 func homepageHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt64(&requestsTotal, 1)
-		_, span := startSpan(r.Context(), "homepage")
+		span := startSpan(r.Context(), "homepage")
 		defer span.End()
 
 		projects, err := storage.ListProjects()
@@ -430,7 +439,7 @@ func homepageHandler() http.HandlerFunc {
 		html := generateHomepageHTML(projects, storageType)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(html))
+		_, _ = w.Write([]byte(html))
 	}
 }
 
@@ -438,7 +447,7 @@ func homepageHandler() http.HandlerFunc {
 func projectBuildsHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt64(&requestsTotal, 1)
-		_, span := startSpan(r.Context(), "project-builds")
+		span := startSpan(r.Context(), "project-builds")
 		defer span.End()
 
 		name := strings.TrimSpace(r.URL.Query().Get("name"))
@@ -461,19 +470,19 @@ func projectBuildsHandler() http.HandlerFunc {
 		html := generateProjectBuildsHTML(name, builds)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(html))
+		_, _ = w.Write([]byte(html))
 	}
 }
 
 // generateHomepageHTML generates the main page HTML
 func generateHomepageHTML(projects []ProjectSummary, storageType string) string {
 	var projectRows strings.Builder
-	
+
 	for _, project := range projects {
 		status := "Running"
 		statusClass := "status-running"
-		duration := "N/A"
-		
+		duration := naString
+
 		if project.LatestBuild.Finished != nil {
 			status = "Completed"
 			statusClass = "status-completed"
@@ -481,7 +490,7 @@ func generateHomepageHTML(projects []ProjectSummary, storageType string) string 
 				duration = fmt.Sprintf("%ds", *project.LatestBuild.Duration)
 			}
 		}
-		
+
 		// Only make clickable if not in lightweight mode
 		if lightweightMode {
 			projectRows.WriteString(fmt.Sprintf(`
@@ -604,13 +613,13 @@ func generateHomepageHTML(projects []ProjectSummary, storageType string) string 
 // generateProjectBuildsHTML generates the project builds page HTML
 func generateProjectBuildsHTML(projectName string, builds []Build) string {
 	var buildRows strings.Builder
-	
+
 	for _, build := range builds {
 		status := "Running"
 		statusClass := "status-running"
-		duration := "N/A"
-		finishedTime := "N/A"
-		
+		duration := naString
+		finishedTime := naString
+
 		if build.Finished != nil {
 			status = "Completed"
 			statusClass = "status-completed"
@@ -619,7 +628,7 @@ func generateProjectBuildsHTML(projectName string, builds []Build) string {
 				duration = fmt.Sprintf("%ds", *build.Duration)
 			}
 		}
-		
+
 		buildRows.WriteString(fmt.Sprintf(`
 			<tr>
 				<td>%d</td>
@@ -757,10 +766,13 @@ func main() {
 		case "--lightweight":
 			lightweightMode = true
 		case "--health-check":
-			resp, err := http.Get("http://localhost:8080/health")
+			client := &http.Client{}
+			req, _ := http.NewRequestWithContext(context.Background(), "GET", "http://localhost:8080/health", nil)
+			resp, err := client.Do(req)
 			if err != nil || resp.StatusCode != 200 {
 				os.Exit(1)
 			}
+			defer func() { _ = resp.Body.Close() }()
 			os.Exit(0)
 		default:
 			fmt.Printf("Unknown option: %s\n", os.Args[1])
@@ -794,23 +806,23 @@ func main() {
 
 	// Set up routes
 	mux := http.NewServeMux()
-	
+
 	// Build tracking endpoints
 	mux.HandleFunc("/start", methodFilter(startBuildHandler()))
 	mux.HandleFunc("/finish", methodFilter(finishBuildHandler()))
-	
+
 	// Health check endpoints
 	mux.HandleFunc("/health", healthHandler())
 	mux.HandleFunc("/healthz", livenessHandler())
 	mux.HandleFunc("/readyz", readinessHandler())
-	
+
 	// Metrics endpoint
 	mux.HandleFunc("/metrics", metricsHandler())
-	
+
 	// REST API endpoints
 	mux.HandleFunc("/api/projects", apiProjectsHandler())
 	mux.HandleFunc("/api/projects/", apiProjectBuildsHandler())
-	
+
 	// Web interface endpoints
 	mux.HandleFunc("/", homepageHandler())
 	mux.HandleFunc("/project", projectBuildsHandler())
@@ -821,16 +833,16 @@ func main() {
 	server := &http.Server{
 		Addr:         ":8080",
 		Handler:      handler,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		ReadTimeout:  readTimeout,
+		WriteTimeout: writeTimeout,
+		IdleTimeout:  idleTimeout,
 	}
 
 	storageTypeStr := "database"
 	if lightweightMode {
 		storageTypeStr = "configmap"
 	}
-	
+
 	fmt.Printf("Starting build-counter version %s on port 8080...\n", version)
 	fmt.Printf("Storage: %s\n", storageTypeStr)
 	fmt.Printf("Web interface: http://localhost:8080/\n")
