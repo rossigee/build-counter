@@ -28,7 +28,7 @@ const (
 )
 
 // Version is set at build time
-var version = "0.9.11"
+var version = "0.9.12"
 
 // Build represents a build record
 type Build struct {
