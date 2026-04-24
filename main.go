@@ -2,19 +2,20 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"time"
 
-	_ "github.com/lib/pq"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/attribute"
 )
@@ -22,13 +23,14 @@ import (
 const naString = "N/A"
 
 const (
-	readTimeout  = 10 * time.Second
-	writeTimeout = 10 * time.Second
-	idleTimeout  = 60 * time.Second
+	readTimeout     = 10 * time.Second
+	writeTimeout    = 10 * time.Second
+	idleTimeout     = 60 * time.Second
+	shutdownTimeout = 30 * time.Second
 )
 
 // Version is set at build time
-var version = "0.9.12"
+var version = "0.10.0"
 
 // Build represents a build record
 type Build struct {
@@ -182,36 +184,8 @@ func finishBuildHandler() http.HandlerFunc {
 		}
 
 		atomic.AddInt64(&buildsFinished, 1)
-		w.WriteHeader(http.StatusCreated)
+		w.WriteHeader(http.StatusOK)
 	}
-}
-
-//nolint:unused
-func connectDatabase() (*sql.DB, error) {
-	connStr := os.Getenv("DATABASE_URL")
-	if connStr == "" {
-		return nil, fmt.Errorf("DATABASE_URL environment variable is not set")
-	}
-
-	db, err := sql.Open("postgres", connStr)
-	if err != nil {
-		return nil, err
-	}
-
-	// Configure connection pool
-	db.SetMaxOpenConns(maxOpenConns)
-	db.SetMaxIdleConns(maxIdleConns)
-	db.SetConnMaxLifetime(connMaxLifetime)
-
-	// Test connection
-	ctx, cancel := context.WithTimeout(context.Background(), timeout5s)
-	defer cancel()
-	if err = db.PingContext(ctx); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-
-	return db, nil
 }
 
 // securityHeadersMiddleware adds security headers to responses
@@ -392,9 +366,9 @@ func apiProjectBuildsHandler() http.HandlerFunc {
 		span := startSpan(r.Context(), "api-project-builds")
 		defer span.End()
 
-		name := strings.TrimSpace(r.URL.Query().Get("name"))
-		if name == "" {
-			http.Error(w, "Missing 'name' parameter", http.StatusBadRequest)
+		name := strings.TrimSpace(r.PathValue("name"))
+		if name == "" || !namePattern.MatchString(name) {
+			http.Error(w, "Invalid project name", http.StatusBadRequest)
 			return
 		}
 
@@ -402,7 +376,7 @@ func apiProjectBuildsHandler() http.HandlerFunc {
 
 		builds, err := storage.GetProjectBuilds(name)
 		if err != nil {
-			log.Printf("Error getting builds for project %s: %v", name, err)
+			log.Printf("Error getting builds for project %q: %v", name, err) //nolint:gosec
 			recordError(span, err)
 			atomic.AddInt64(&errorCount, 1)
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -460,7 +434,7 @@ func projectBuildsHandler() http.HandlerFunc {
 
 		builds, err := storage.GetProjectBuilds(name)
 		if err != nil {
-			log.Printf("Error getting builds for project %s: %v", name, err)
+			log.Printf("Error getting builds for project %s: %v", strings.ReplaceAll(name, "%", "%25"), err)
 			recordError(span, err)
 			atomic.AddInt64(&errorCount, 1)
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -493,7 +467,7 @@ func generateHomepageHTML(projects []ProjectSummary, storageType string) string 
 
 		// Only make clickable if not in lightweight mode
 		if lightweightMode {
-			projectRows.WriteString(fmt.Sprintf(`
+			fmt.Fprintf(&projectRows, `
 				<tr>
 					<td>%s</td>
 					<td>%s</td>
@@ -509,9 +483,9 @@ func generateHomepageHTML(projects []ProjectSummary, storageType string) string 
 				project.LatestBuild.Started.Format("2006-01-02 15:04:05"),
 				duration,
 				project.BuildCount,
-			))
+			)
 		} else {
-			projectRows.WriteString(fmt.Sprintf(`
+			fmt.Fprintf(&projectRows, `
 				<tr onclick="window.location.href='/project?name=%s'" style="cursor: pointer;">
 					<td>%s</td>
 					<td>%s</td>
@@ -528,7 +502,7 @@ func generateHomepageHTML(projects []ProjectSummary, storageType string) string 
 				project.LatestBuild.Started.Format("2006-01-02 15:04:05"),
 				duration,
 				project.BuildCount,
-			))
+			)
 		}
 	}
 
@@ -629,7 +603,7 @@ func generateProjectBuildsHTML(projectName string, builds []Build) string {
 			}
 		}
 
-		buildRows.WriteString(fmt.Sprintf(`
+		fmt.Fprintf(&buildRows, `
 			<tr>
 				<td>%d</td>
 				<td>%s</td>
@@ -645,7 +619,7 @@ func generateProjectBuildsHTML(projectName string, builds []Build) string {
 			build.Started.Format("2006-01-02 15:04:05"),
 			finishedTime,
 			duration,
-		))
+		)
 	}
 
 	return fmt.Sprintf(`
@@ -698,7 +672,7 @@ func generateProjectBuildsHTML(projectName string, builds []Build) string {
         
         <div class="api-links">
             <strong>API Endpoints:</strong>
-            <a href="/api/projects/%s">JSON Builds</a>
+            <a href="/api/projects/%s/builds">JSON Builds</a>
             <a href="/api/projects">All Projects</a>
         </div>
         
@@ -766,9 +740,16 @@ func main() {
 		case "--lightweight":
 			lightweightMode = true
 		case "--health-check":
+			portNum := 8080
+			if p := os.Getenv("PORT"); p != "" {
+				if n, err := strconv.Atoi(p); err == nil && n > 0 && n <= 65535 {
+					portNum = n
+				}
+			}
 			client := &http.Client{}
-			req, _ := http.NewRequestWithContext(context.Background(), "GET", "http://localhost:8080/health", nil)
-			resp, err := client.Do(req)
+			url := fmt.Sprintf("http://localhost:%d/health", portNum)
+			req, _ := http.NewRequestWithContext(context.Background(), "GET", url, nil) //nolint:gosec
+			resp, err := client.Do(req)                                                 //nolint:gosec
 			if err != nil || resp.StatusCode != 200 {
 				os.Exit(1)
 			}
@@ -821,7 +802,7 @@ func main() {
 
 	// REST API endpoints
 	mux.HandleFunc("/api/projects", apiProjectsHandler())
-	mux.HandleFunc("/api/projects/", apiProjectBuildsHandler())
+	mux.HandleFunc("/api/projects/{name}/builds", apiProjectBuildsHandler())
 
 	// Web interface endpoints
 	mux.HandleFunc("/", homepageHandler())
@@ -830,8 +811,13 @@ func main() {
 	// Add OpenTelemetry HTTP instrumentation and security headers
 	handler := securityHeadersMiddleware(otelhttp.NewHandler(mux, "build-counter"))
 
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
 	server := &http.Server{
-		Addr:         ":8080",
+		Addr:         ":" + port,
 		Handler:      handler,
 		ReadTimeout:  readTimeout,
 		WriteTimeout: writeTimeout,
@@ -843,8 +829,25 @@ func main() {
 		storageTypeStr = "configmap"
 	}
 
-	fmt.Printf("Starting build-counter version %s on port 8080...\n", version)
+	fmt.Printf("Starting build-counter version %s on port %s...\n", version, port)
 	fmt.Printf("Storage: %s\n", storageTypeStr)
-	fmt.Printf("Web interface: http://localhost:8080/\n")
-	log.Fatal(server.ListenAndServe())
+	fmt.Printf("Web interface: http://localhost:%s/\n", port)
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server error: %v", err)
+		}
+	}()
+
+	<-ctx.Done()
+	stop()
+	log.Println("Shutting down server gracefully...")
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Fatalf("Server forced shutdown: %v", err)
+	}
 }

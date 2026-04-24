@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -58,7 +59,7 @@ func TestMethodFilter(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.method, func(t *testing.T) {
-			req := httptest.NewRequest(tt.method, "/test", nil)
+			req := httptest.NewRequestWithContext(context.Background(), tt.method, "/test", nil)
 			rr := httptest.NewRecorder()
 
 			handler(rr, req)
@@ -75,7 +76,7 @@ func TestSecurityHeadersMiddleware(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 	rr := httptest.NewRecorder()
 
 	handler.ServeHTTP(rr, req)
@@ -105,7 +106,7 @@ func TestHealthHandler(t *testing.T) {
 
 	handler := healthHandler()
 
-	req := httptest.NewRequest("GET", "/health", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/health", nil)
 	rr := httptest.NewRecorder()
 
 	handler(rr, req)
@@ -156,7 +157,7 @@ func TestStartBuildHandlerValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(tt.method, tt.url, nil)
+			req := httptest.NewRequestWithContext(context.Background(), tt.method, tt.url, nil)
 			rr := httptest.NewRecorder()
 
 			handler(rr, req)
@@ -185,7 +186,7 @@ func TestFinishBuildHandlerValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(tt.method, tt.url, nil)
+			req := httptest.NewRequestWithContext(context.Background(), tt.method, tt.url, nil)
 			rr := httptest.NewRecorder()
 
 			handler(rr, req)

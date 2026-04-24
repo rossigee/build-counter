@@ -5,18 +5,22 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/propagation"
-	"go.opentelemetry.io/otel/sdk/resource"
+	sdkresource "go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
 	"go.opentelemetry.io/otel/trace"
 )
 
-const tracingTimeout = 10 * time.Second
+const (
+	tracingTimeout   = 10 * time.Second
+	headerPartsCount = 2
+)
 
 var tracer trace.Tracer
 
@@ -34,7 +38,7 @@ func initTracing() (func(), error) {
 		return func() {}, nil
 	}
 
-	log.Printf("Initializing OpenTelemetry tracing with endpoint: %s", endpoint)
+	log.Printf("Initializing OpenTelemetry tracing with endpoint: %q", endpoint) //nolint:gosec
 
 	// Create OTLP HTTP exporter
 	ctx := context.Background()
@@ -44,13 +48,16 @@ func initTracing() (func(), error) {
 		otlptracehttp.WithEndpoint(endpoint),
 	}
 
-	// Add headers if provided
+	// Add headers if provided (format: key1=value1,key2=value2)
 	if headers := os.Getenv("OTEL_EXPORTER_OTLP_HEADERS"); headers != "" {
-		// Parse headers from environment variable
-		// Format: key1=value1,key2=value2
 		headerMap := make(map[string]string)
-		// Simple parsing - in production you might want more robust parsing
-		log.Printf("Using OTEL headers: %s", headers)
+		for _, pair := range strings.Split(headers, ",") {
+			parts := strings.SplitN(strings.TrimSpace(pair), "=", headerPartsCount)
+			if len(parts) == headerPartsCount {
+				headerMap[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
+			}
+		}
+		log.Printf("Using %d OTEL headers", len(headerMap))
 		opts = append(opts, otlptracehttp.WithHeaders(headerMap))
 	}
 
@@ -75,8 +82,8 @@ func initTracing() (func(), error) {
 		serviceVersion = version
 	}
 
-	res, err := resource.New(ctx,
-		resource.WithAttributes(
+	res, err := sdkresource.New(ctx,
+		sdkresource.WithAttributes(
 			semconv.ServiceNameKey.String(serviceName),
 			semconv.ServiceVersionKey.String(serviceVersion),
 		),

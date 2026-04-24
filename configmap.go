@@ -10,6 +10,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -19,6 +20,7 @@ import (
 const (
 	configMapTimeout5s  = 5 * time.Second
 	configMapTimeout10s = 10 * time.Second
+	configMapMaxRetries = 5
 )
 
 // BuildInfo represents the structure stored in ConfigMap
@@ -74,106 +76,123 @@ func NewConfigMapStorage() (*ConfigMapStorage, error) {
 	}, nil
 }
 
-// StartBuild records the start of a build
+// StartBuild records the start of a build, retrying on resource version conflicts
 func (cms *ConfigMapStorage) StartBuild(name, buildID string) (int, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), configMapTimeout10s)
-	defer cancel()
+	for attempt := 0; attempt < configMapMaxRetries; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), configMapTimeout10s)
 
-	// Get or create the ConfigMap
-	cm, err := cms.client.CoreV1().ConfigMaps(cms.namespace).Get(ctx, cms.configMap, metav1.GetOptions{})
-	if err != nil {
-		// Create ConfigMap if it doesn't exist
-		cm = &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      cms.configMap,
-				Namespace: cms.namespace,
-			},
-			Data: make(map[string]string),
-		}
-		cm, err = cms.client.CoreV1().ConfigMaps(cms.namespace).Create(ctx, cm, metav1.CreateOptions{})
+		cm, err := cms.client.CoreV1().ConfigMaps(cms.namespace).Get(ctx, cms.configMap, metav1.GetOptions{})
 		if err != nil {
-			return 0, fmt.Errorf("failed to create ConfigMap: %w", err)
+			if !k8serrors.IsNotFound(err) {
+				cancel()
+				return 0, fmt.Errorf("failed to get ConfigMap: %w", err)
+			}
+			cm = &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      cms.configMap,
+					Namespace: cms.namespace,
+				},
+				Data: make(map[string]string),
+			}
+			cm, err = cms.client.CoreV1().ConfigMaps(cms.namespace).Create(ctx, cm, metav1.CreateOptions{})
+			if err != nil {
+				cancel()
+				if k8serrors.IsAlreadyExists(err) {
+					continue
+				}
+				return 0, fmt.Errorf("failed to create ConfigMap: %w", err)
+			}
 		}
+
+		if cm.Data == nil {
+			cm.Data = make(map[string]string)
+		}
+
+		buildInfo := BuildInfo{
+			Name:    name,
+			BuildID: buildID,
+			Started: time.Now(),
+			ID:      int(time.Now().Unix()),
+		}
+
+		data, err := json.Marshal(buildInfo)
+		if err != nil {
+			cancel()
+			return 0, fmt.Errorf("failed to marshal build info: %w", err)
+		}
+
+		cm.Data[name] = string(data)
+
+		_, err = cms.client.CoreV1().ConfigMaps(cms.namespace).Update(ctx, cm, metav1.UpdateOptions{})
+		cancel()
+		if err != nil {
+			if k8serrors.IsConflict(err) {
+				continue
+			}
+			return 0, fmt.Errorf("failed to update ConfigMap: %w", err)
+		}
+
+		return buildInfo.ID, nil
 	}
-
-	if cm.Data == nil {
-		cm.Data = make(map[string]string)
-	}
-
-	// Generate a simple ID (timestamp-based)
-	buildInfo := BuildInfo{
-		Name:    name,
-		BuildID: buildID,
-		Started: time.Now(),
-		ID:      int(time.Now().Unix()),
-	}
-
-	data, err := json.Marshal(buildInfo)
-	if err != nil {
-		return 0, fmt.Errorf("failed to marshal build info: %w", err)
-	}
-
-	cm.Data[name] = string(data)
-
-	// Update the ConfigMap
-	_, err = cms.client.CoreV1().ConfigMaps(cms.namespace).Update(ctx, cm, metav1.UpdateOptions{})
-	if err != nil {
-		return 0, fmt.Errorf("failed to update ConfigMap: %w", err)
-	}
-
-	return buildInfo.ID, nil
+	return 0, fmt.Errorf("failed to update ConfigMap after %d retries", configMapMaxRetries)
 }
 
-// FinishBuild records the completion of a build
+// FinishBuild records the completion of a build, retrying on resource version conflicts
 func (cms *ConfigMapStorage) FinishBuild(name, buildID string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), configMapTimeout10s)
-	defer cancel()
+	for attempt := 0; attempt < configMapMaxRetries; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), configMapTimeout10s)
 
-	// Get the ConfigMap
-	cm, err := cms.client.CoreV1().ConfigMaps(cms.namespace).Get(ctx, cms.configMap, metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to get ConfigMap: %w", err)
+		cm, err := cms.client.CoreV1().ConfigMaps(cms.namespace).Get(ctx, cms.configMap, metav1.GetOptions{})
+		if err != nil {
+			cancel()
+			return fmt.Errorf("failed to get ConfigMap: %w", err)
+		}
+
+		if cm.Data == nil {
+			cancel()
+			return fmt.Errorf("no build data found for name: %s", name)
+		}
+
+		data, exists := cm.Data[name]
+		if !exists {
+			cancel()
+			return fmt.Errorf("no build found for name: %s", name)
+		}
+
+		var buildInfo BuildInfo
+		if err := json.Unmarshal([]byte(data), &buildInfo); err != nil {
+			cancel()
+			return fmt.Errorf("failed to unmarshal build info: %w", err)
+		}
+
+		if buildInfo.BuildID != buildID {
+			cancel()
+			return fmt.Errorf("build_id mismatch: expected %s, got %s", buildInfo.BuildID, buildID)
+		}
+
+		now := time.Now()
+		buildInfo.Finished = &now
+
+		updatedData, err := json.Marshal(buildInfo)
+		if err != nil {
+			cancel()
+			return fmt.Errorf("failed to marshal updated build info: %w", err)
+		}
+
+		cm.Data[name] = string(updatedData)
+
+		_, err = cms.client.CoreV1().ConfigMaps(cms.namespace).Update(ctx, cm, metav1.UpdateOptions{})
+		cancel()
+		if err != nil {
+			if k8serrors.IsConflict(err) {
+				continue
+			}
+			return fmt.Errorf("failed to update ConfigMap: %w", err)
+		}
+
+		return nil
 	}
-
-	if cm.Data == nil {
-		return fmt.Errorf("no build data found for name: %s", name)
-	}
-
-	// Get existing build info
-	data, exists := cm.Data[name]
-	if !exists {
-		return fmt.Errorf("no build found for name: %s", name)
-	}
-
-	var buildInfo BuildInfo
-	if err := json.Unmarshal([]byte(data), &buildInfo); err != nil {
-		return fmt.Errorf("failed to unmarshal build info: %w", err)
-	}
-
-	// Verify build_id matches
-	if buildInfo.BuildID != buildID {
-		return fmt.Errorf("build_id mismatch: expected %s, got %s", buildInfo.BuildID, buildID)
-	}
-
-	// Update finish time
-	now := time.Now()
-	buildInfo.Finished = &now
-
-	// Marshal back to JSON
-	updatedData, err := json.Marshal(buildInfo)
-	if err != nil {
-		return fmt.Errorf("failed to marshal updated build info: %w", err)
-	}
-
-	cm.Data[name] = string(updatedData)
-
-	// Update the ConfigMap
-	_, err = cms.client.CoreV1().ConfigMaps(cms.namespace).Update(ctx, cm, metav1.UpdateOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to update ConfigMap: %w", err)
-	}
-
-	return nil
+	return fmt.Errorf("failed to update ConfigMap after %d retries", configMapMaxRetries)
 }
 
 // HealthCheck verifies the ConfigMap storage is accessible
@@ -183,7 +202,9 @@ func (cms *ConfigMapStorage) HealthCheck() error {
 
 	_, err := cms.client.CoreV1().ConfigMaps(cms.namespace).Get(ctx, cms.configMap, metav1.GetOptions{})
 	if err != nil {
-		// Try to create it if it doesn't exist
+		if !k8serrors.IsNotFound(err) {
+			return fmt.Errorf("failed to access ConfigMap: %w", err)
+		}
 		cm := &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      cms.configMap,
@@ -192,8 +213,8 @@ func (cms *ConfigMapStorage) HealthCheck() error {
 			Data: make(map[string]string),
 		}
 		_, err = cms.client.CoreV1().ConfigMaps(cms.namespace).Create(ctx, cm, metav1.CreateOptions{})
-		if err != nil {
-			return fmt.Errorf("failed to access or create ConfigMap: %w", err)
+		if err != nil && !k8serrors.IsAlreadyExists(err) {
+			return fmt.Errorf("failed to create ConfigMap: %w", err)
 		}
 	}
 	return nil
@@ -271,15 +292,14 @@ func (cms *ConfigMapStorage) ListProjects() ([]ProjectSummary, error) {
 
 		if buildInfo.Finished != nil {
 			build.Finished = buildInfo.Finished
-			duration := buildInfo.Finished.Sub(buildInfo.Started).Seconds()
-			durationInt := int64(duration)
-			build.Duration = &durationInt
+			duration := int64(buildInfo.Finished.Sub(buildInfo.Started).Seconds())
+			build.Duration = &duration
 		}
 
 		projects = append(projects, ProjectSummary{
 			Name:        name,
 			LatestBuild: build,
-			BuildCount:  1, // ConfigMap only stores latest build
+			BuildCount:  1, // ConfigMap only stores latest build per project
 		})
 	}
 
@@ -302,9 +322,8 @@ func (cms *ConfigMapStorage) GetProjectBuilds(name string) ([]Build, error) {
 
 	if buildInfo.Finished != nil {
 		build.Finished = buildInfo.Finished
-		duration := buildInfo.Finished.Sub(buildInfo.Started).Seconds()
-		durationInt := int64(duration)
-		build.Duration = &durationInt
+		duration := int64(buildInfo.Finished.Sub(buildInfo.Started).Seconds())
+		build.Duration = &duration
 	}
 
 	return []Build{build}, nil
