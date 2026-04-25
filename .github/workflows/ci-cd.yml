@@ -153,7 +153,7 @@ jobs:
     - name: Install Helm
       uses: azure/setup-helm@v3
       with:
-        version: 'latest'
+        version: '3.16.3'
 
     - name: Update Chart Version
       run: |
