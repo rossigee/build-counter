@@ -234,7 +234,7 @@ jobs:
     - name: Push Helm Chart to GHCR
       run: |
         helm registry login ${{ env.GHCR_REGISTRY }} --username ${{ github.actor }} --password ${{ secrets.GITHUB_TOKEN }}
-        helm push build-counter-*.tgz oci://${{ env.GHCR_REGISTRY }}/${{ github.repository_owner }}/${{ github.event.repository.name }}
+        helm push build-counter-*.tgz oci://${{ env.GHCR_REGISTRY }}/${{ github.repository_owner }}/helm
 
   create-release:
     needs: [build-and-push, publish-helm-chart]
