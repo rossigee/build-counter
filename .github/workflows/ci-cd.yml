@@ -188,6 +188,9 @@ jobs:
         # Stash any local changes before switching branches
         git stash push -m "temp stash before gh-pages checkout" || true
 
+        # Remove untracked files to avoid checkout conflicts
+        git clean -fd
+
         # Check if gh-pages exists remotely and handle accordingly
         if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
           echo "gh-pages branch exists remotely, checking out..."
