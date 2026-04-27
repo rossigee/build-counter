@@ -6,10 +6,10 @@ entries:
       licenses: MIT
     apiVersion: v2
     appVersion: 0.10.0
-    created: "2026-04-27T14:58:23.884462944Z"
+    created: "2026-04-27T15:17:33.240372346Z"
     description: A Helm chart for Build Counter - HTTP service for tracking CI/CD
       build times
-    digest: ff8b36b0292009dd77d9339b198cd96e415734d5d506b6c2a0e508821cc13c46
+    digest: 8b025fee5dd2e521d9c66202e4ddac9d42db4ad2ade11dc14af2ad1cbbcf5211
     home: https://github.com/rossigee/build-counter
     keywords:
     - ci-cd
@@ -33,7 +33,7 @@ entries:
       licenses: MIT
     apiVersion: v2
     appVersion: 0.9.11
-    created: "2026-04-27T14:58:23.885166298Z"
+    created: "2026-04-27T15:17:33.241077872Z"
     description: A Helm chart for Build Counter - HTTP service for tracking CI/CD
       build times
     digest: 539b5d5feb6954b71ce4668b2c57c69930ef6940da593f6f71e06caf0ff14dc3
@@ -55,4 +55,4 @@ entries:
     urls:
     - https://rossigee.github.io/build-counter/build-counter-0.9.11.tgz
     version: 0.9.11
-generated: "2026-04-27T14:58:23.883584303Z"
+generated: "2026-04-27T15:17:33.239443084Z"
