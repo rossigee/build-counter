@@ -30,7 +30,7 @@ const (
 )
 
 // Version is set at build time
-var version = "0.10.0"
+var version = "0.10.1"
 
 // Build represents a build record
 type Build struct {

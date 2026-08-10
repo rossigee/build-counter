@@ -3,10 +3,10 @@ name: build-counter
 description: A Helm chart for Build Counter - HTTP service for tracking CI/CD build times
 
 # Chart version
-version: 0.9.0
+version: 0.10.1
 
 # Application version
-appVersion: "0.9.0"
+appVersion: "0.10.1"
 
 # Chart type
 type: application
