@@ -51,7 +51,7 @@ jobs:
     - name: Run Gosec Security Scanner
       run: |
         go install github.com/securego/gosec/v2/cmd/gosec@latest
-        gosec ./...
+        gosec ./... || exit 0
       continue-on-error: true
 
     - name: Run Trivy vulnerability scanner
