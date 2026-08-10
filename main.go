@@ -515,30 +515,30 @@ func generateHomepageHTML(projects []ProjectSummary, storageType string) string 
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; background-color: #0d1117; color: #c9d1d9; }
         .container { max-width: 1200px; margin: 20px auto; background-color: #161b22; padding: 24px; border-radius: 12px; border: 1px solid #30363d; }
-        h1 { color: #f0f6fc; text-align: center; margin-bottom: 24px; }
-        .info { background-color: #0d1117; padding: 16px; border-radius: 8px; margin-bottom: 24px; border: 1px solid #30363d; }
-        .info strong { color: #58a6ff; }
-        table { width: 100%%; border-collapse: collapse; margin-top: 20px; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        h1 { color: #f0f6fc; margin: 0; }
+        .project-count { font-size: 14px; color: #8b949e; }
+        table { width: 100%%; border-collapse: collapse; margin: 20px 0; }
         th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid #30363d; }
         th { background-color: #0d1117; font-weight: 600; color: #f0f6fc; }
         tr:hover { background-color: #1c2128; }
         .status-running { color: #f9826c; font-weight: 600; }
         .status-completed { color: #3fb950; font-weight: 600; }
+        .api-section { margin-top: 32px; padding-top: 24px; border-top: 1px solid #30363d; }
+        .api-section h3 { margin-top: 0; color: #f0f6fc; }
+        .button-group { display: flex; gap: 12px; flex-wrap: wrap; }
+        .btn { display: inline-block; padding: 8px 16px; background-color: #238636; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 500; font-size: 14px; border: 1px solid #2ea043; transition: all 0.2s; }
+        .btn:hover { background-color: #2ea043; border-color: #3fb950; }
         .footer { margin-top: 32px; text-align: center; color: #8b949e; font-size: 14px; }
-        .api-links { margin-top: 24px; padding-top: 24px; border-top: 1px solid #30363d; }
-        .api-links a { margin-right: 20px; color: #58a6ff; text-decoration: none; font-weight: 500; }
-        .api-links a:hover { text-decoration: underline; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Build Counter Dashboard</h1>
-        <div class="info">
-            <strong>Storage Mode:</strong> %s<br>
-            <strong>Version:</strong> %s<br>
-            <strong>Projects:</strong> %d
+        <div class="header">
+            <h1>Build Counter Dashboard</h1>
+            <div class="project-count">%d projects</div>
         </div>
-        
+
         <table>
             <thead>
                 <tr>
@@ -554,14 +554,16 @@ func generateHomepageHTML(projects []ProjectSummary, storageType string) string 
                 %s
             </tbody>
         </table>
-        
-        <div class="api-links">
-            <strong>API Endpoints:</strong>
-            <a href="/api/projects">JSON Projects</a>
-            <a href="/metrics">Metrics</a>
-            <a href="/health">Health</a>
+
+        <div class="api-section">
+            <h3>API Endpoints</h3>
+            <div class="button-group">
+                <a href="/api/projects" class="btn">Projects</a>
+                <a href="/metrics" class="btn">Metrics</a>
+                <a href="/health" class="btn">Health</a>
+            </div>
         </div>
-        
+
         <div class="footer">
             Build Counter v%s | %s mode%s
         </div>
@@ -569,8 +571,6 @@ func generateHomepageHTML(projects []ProjectSummary, storageType string) string 
 </body>
 </html>`,
 		storageType,
-		storageType,
-		version,
 		len(projects),
 		projectRows.String(),
 		version,
