@@ -425,8 +425,8 @@ func projectBuildsHandler() http.HandlerFunc {
 		defer span.End()
 
 		name := strings.TrimSpace(r.URL.Query().Get("name"))
-		if name == "" {
-			http.Error(w, "Missing 'name' parameter", http.StatusBadRequest)
+		if name == "" || !namePattern.MatchString(name) {
+			http.Error(w, "Invalid project name", http.StatusBadRequest)
 			return
 		}
 
