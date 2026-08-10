@@ -748,8 +748,8 @@ func main() {
 			}
 			client := &http.Client{}
 			url := fmt.Sprintf("http://localhost:%d/health", portNum)
-			req, _ := http.NewRequestWithContext(context.Background(), "GET", url, nil) //nolint:gosec
-			resp, err := client.Do(req)                                                 //nolint:gosec
+			req, _ := http.NewRequestWithContext(context.Background(), "GET", url, nil) //nolint:G704
+			resp, err := client.Do(req)                                                 //nolint:G704
 			if err != nil || resp.StatusCode != 200 {
 				os.Exit(1)
 			}

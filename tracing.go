@@ -38,7 +38,7 @@ func initTracing() (func(), error) {
 		return func() {}, nil
 	}
 
-	log.Printf("Initializing OpenTelemetry tracing with endpoint: %q", endpoint) //nolint:gosec
+	log.Printf("Initializing OpenTelemetry tracing with endpoint: %q", endpoint) //nolint:G706
 
 	// Create OTLP HTTP exporter
 	ctx := context.Background()

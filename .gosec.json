@@ -1,0 +1,9 @@
+{
+  "global": {
+    "exclude-dir": []
+  },
+  "rules": {},
+  "exclude_nosec": false,
+  "severity": "medium"
+}
+
